@@ -11,6 +11,9 @@ export const DEFAULT_CONFIG = {
         talking: 'https://cdn.jsdelivr.net/gh/zizaijiyihu/digital-human-component@latest/cdn/animations/F_Talking_Variations_005.glb'
     },
 
+    // 默认背景图片
+    DEFAULT_BACKGROUND_IMAGE: 'https://cdn.jsdelivr.net/gh/zizaijiyihu/digital-human-component@latest/cdn/images/办公背景.png',
+
     // 音素映射表（Oculus ARKit 标准）
     PHONEME_TO_VISEME: {
         'aa': 'viseme_aa',

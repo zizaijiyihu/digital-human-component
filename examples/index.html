@@ -102,8 +102,8 @@
         const avatar = new DigitalHuman({
             container: '#avatar',
             modelUrl: 'https://models.readyplayer.me/690abee256dbb2e94779a60a.glb',
-            backgroundImage: '../cdn/images/办公背景.png',
             autoStart: 'listening',
+            // 不设置 backgroundImage，会自动使用默认办公背景
             debug: true,
 
             onReady: () => {

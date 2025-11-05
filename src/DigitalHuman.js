@@ -30,7 +30,10 @@ export class DigitalHuman extends EventEmitter {
 
             // 背景配置
             backgroundColor: options.backgroundColor || '#1a1a2e',
-            backgroundImage: options.backgroundImage || null,
+            backgroundImage: options.backgroundImage !== undefined
+                ? options.backgroundImage
+                : DEFAULT_CONFIG.DEFAULT_BACKGROUND_IMAGE,
+            useDefaultBackground: options.backgroundImage !== undefined ? false : true,
 
             // 尺寸
             width: options.width || 600,

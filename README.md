@@ -74,18 +74,16 @@ http://localhost:8000/examples/index.html
         // 导入组件
         import { DigitalHuman } from './src/index.js';
 
-        // 创建数字人
+        // 创建数字人（零配置！只需指定容器）
         const avatar = new DigitalHuman({
-            container: '#avatar',
-            modelUrl: 'https://models.readyplayer.me/690abee256dbb2e94779a60a.glb',
-            autoStart: 'listening',  // 自动启动聆听模式
-
-            onReady: () => {
-                console.log('数字人准备就绪！');
-            }
+            container: '#avatar'
+            // 就这一行！其他都有默认值：
+            // - 默认模型（Ready Player Me 女性角色）
+            // - 默认动画（idle + talking）
+            // - 默认背景（办公场景）
         });
 
-        // 播放音频
+        // 播放音频（可选）
         avatar.speak('path/to/audio.wav');
     </script>
 </body>
@@ -100,9 +98,9 @@ http://localhost:8000/examples/index.html
 const avatar = new DigitalHuman({
     // === 必填项 ===
     container: '#avatar',              // 容器选择器或 DOM 元素
-    modelUrl: 'https://...',           // Ready Player Me 模型 URL
 
     // === 可选项（都有默认值）===
+    modelUrl: 'https://...',           // Ready Player Me 模型 URL（默认提供）
     autoStart: 'listening',            // 自动启动：'listening' | 'speaking' | null
 
     // 动画配置（默认使用 CDN 动画）
@@ -228,11 +226,12 @@ digital-human-component/
 
 组件会自动从以下 CDN 加载默认资源，无需手动下载：
 
+- **默认模型**：`https://models.readyplayer.me/690abee256dbb2e94779a60a.glb`（Ready Player Me 女性角色）
 - **Idle 动画**：`https://cdn.jsdelivr.net/gh/zizaijiyihu/digital-human-component@latest/cdn/animations/F_Standing_Idle_001.glb`
 - **Talking 动画**：`https://cdn.jsdelivr.net/gh/zizaijiyihu/digital-human-component@latest/cdn/animations/F_Talking_Variations_005.glb`
-- **默认背景**：`https://cdn.jsdelivr.net/gh/zizaijiyihu/digital-human-component@latest/cdn/images/办公背景.png`
+- **默认背景**：`https://cdn.jsdelivr.net/gh/zizaijiyihu/digital-human-component@latest/cdn/images/office-background.png`
 
-如果你想使用自己的动画或背景，只需在配置中指定 URL 即可。
+如果你想使用自己的模型、动画或背景，只需在配置中指定 URL 即可。
 
 ## 📋 完整示例
 
@@ -280,11 +279,10 @@ digital-human-component/
     <script type="module">
         import { DigitalHuman } from './src/index.js';
 
+        // 零配置使用！
         window.avatar = new DigitalHuman({
             container: '#avatar',
-            modelUrl: 'https://models.readyplayer.me/690abee256dbb2e94779a60a.glb',
             autoStart: 'listening',
-
             onReady: () => console.log('✅ 准备就绪'),
             onSpeakEnd: () => avatar.startListening()
         });

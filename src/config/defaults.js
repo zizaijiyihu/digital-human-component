@@ -5,6 +5,9 @@ export const DEFAULT_CONFIG = {
     // CDN 基础地址
     CDN_BASE: 'https://cdn.jsdelivr.net/gh/zizaijiyihu/digital-human-component@latest/cdn',
 
+    // 默认模型 URL
+    DEFAULT_MODEL_URL: 'https://models.readyplayer.me/690abee256dbb2e94779a60a.glb',
+
     // 默认动画
     DEFAULT_ANIMATIONS: {
         idle: 'https://cdn.jsdelivr.net/gh/zizaijiyihu/digital-human-component@latest/cdn/animations/F_Standing_Idle_001.glb',
@@ -12,7 +15,7 @@ export const DEFAULT_CONFIG = {
     },
 
     // 默认背景图片
-    DEFAULT_BACKGROUND_IMAGE: 'https://cdn.jsdelivr.net/gh/zizaijiyihu/digital-human-component@latest/cdn/images/办公背景.png',
+    DEFAULT_BACKGROUND_IMAGE: 'https://cdn.jsdelivr.net/gh/zizaijiyihu/digital-human-component@latest/cdn/images/office-background.png',
 
     // 音素映射表（Oculus ARKit 标准）
     PHONEME_TO_VISEME: {

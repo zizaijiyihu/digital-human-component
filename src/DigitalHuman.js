@@ -19,7 +19,7 @@ export class DigitalHuman extends EventEmitter {
         this.config = {
             // 必选
             container: options.container,
-            modelUrl: options.modelUrl,
+            modelUrl: options.modelUrl || DEFAULT_CONFIG.DEFAULT_MODEL_URL,
 
             // 动画配置
             useDefaultAnimations: options.useDefaultAnimations !== false,
@@ -74,9 +74,6 @@ export class DigitalHuman extends EventEmitter {
         // 验证必选参数
         if (!this.config.container) {
             throw new Error('DigitalHuman: container is required');
-        }
-        if (!this.config.modelUrl) {
-            throw new Error('DigitalHuman: modelUrl is required');
         }
 
         // 状态

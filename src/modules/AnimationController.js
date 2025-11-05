@@ -21,6 +21,7 @@ export class AnimationController {
      * @param {string} url - GLB 文件 URL
      */
     async loadAnimation(name, url) {
+        console.log(`📥 Loading animation "${name}" from:`, url);
         return new Promise((resolve, reject) => {
             this.loader.load(
                 url,
@@ -31,13 +32,20 @@ export class AnimationController {
                         action.setLoop(THREE.LoopRepeat);
 
                         this.animations.set(name, { clip, action });
+                        console.log(`✅ Animation "${name}" loaded successfully (duration: ${clip.duration.toFixed(2)}s)`);
                         resolve({ name, clip, action });
                     } else {
                         reject(new Error(`No animations found in ${url}`));
                     }
                 },
-                undefined,
-                reject
+                (progress) => {
+                    const percent = (progress.loaded / progress.total * 100).toFixed(0);
+                    console.log(`⏳ Loading "${name}": ${percent}%`);
+                },
+                (error) => {
+                    console.error(`❌ Failed to load animation "${name}":`, error);
+                    reject(error);
+                }
             );
         });
     }

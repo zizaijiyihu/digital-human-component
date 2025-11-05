@@ -1,0 +1,41 @@
+{
+  "name": "digital-human",
+  "version": "1.0.0",
+  "description": "A digital human component with lip-sync and expressions",
+  "main": "cdn/digital-human.js",
+  "module": "cdn/digital-human.esm.js",
+  "files": [
+    "cdn",
+    "src"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "digital-human",
+    "avatar",
+    "lip-sync",
+    "three.js",
+    "ready-player-me"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-terser": "^0.4.4",
+    "rollup": "^4.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zizaijiyihu/digital-human-component.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zizaijiyihu/digital-human-component/issues"
+  },
+  "homepage": "https://github.com/zizaijiyihu/digital-human-component#readme"
+}

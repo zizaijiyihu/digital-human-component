@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Human - 基础示例</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        #container {
+            max-width: 1200px;
+            width: 100%;
+        }
+        #avatar {
+            width: 600px;
+            height: 600px;
+            margin: 0 auto;
+        }
+        #controls {
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            text-align: center;
+        }
+        button {
+            padding: 12px 24px;
+            margin: 5px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        input[type="text"] {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            width: 300px;
+            margin: 5px;
+        }
+        #status {
+            margin-top: 15px;
+            color: white;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="avatar"></div>
+
+        <div id="controls">
+            <h2 style="color: white; margin-bottom: 20px;">数字人控制面板</h2>
+
+            <div style="margin: 15px 0;">
+                <button id="btnListen">👂 启动聆听模式</button>
+                <button id="btnStop">⏹ 停止</button>
+            </div>
+
+            <div style="margin: 15px 0;">
+                <input type="text" id="audioPath" value="../audio/demo.wav" placeholder="音频文件路径">
+                <button id="btnSpeak">🗣️ 播放音频</button>
+            </div>
+
+            <div id="status">正在加载...</div>
+        </div>
+    </div>
+
+    <!-- 引入 Three.js -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <!-- 引入组件 -->
+    <script type="module">
+        import { DigitalHuman } from '../src/index.js';
+
+        // 创建数字人实例
+        const avatar = new DigitalHuman({
+            container: '#avatar',
+            modelUrl: 'https://models.readyplayer.me/690abee256dbb2e94779a60a.glb',
+            backgroundImage: '../../animate/image/办公背景.png',
+            autoStart: 'listening',
+            debug: true,
+
+            onReady: () => {
+                document.getElementById('status').textContent = '✅ 加载完成！';
+                console.log('Digital Human is ready!');
+            },
+
+            onSpeakStart: () => {
+                document.getElementById('status').textContent = '🗣️ 正在说话...';
+            },
+
+            onSpeakEnd: () => {
+                document.getElementById('status').textContent = '✅ 说话完成';
+                // 自动切换回聆听模式
+                setTimeout(() => avatar.startListening(), 500);
+            },
+
+            onListenStart: () => {
+                document.getElementById('status').textContent = '👂 聆听中...';
+            },
+
+            onError: (error) => {
+                document.getElementById('status').textContent = '❌ 错误: ' + error.message;
+                console.error('Error:', error);
+            }
+        });
+
+        // 按钮事件
+        document.getElementById('btnListen').addEventListener('click', () => {
+            avatar.startListening();
+        });
+
+        document.getElementById('btnStop').addEventListener('click', () => {
+            avatar.stopListening();
+            avatar.stopSpeaking();
+            document.getElementById('status').textContent = '⏹ 已停止';
+        });
+
+        document.getElementById('btnSpeak').addEventListener('click', async () => {
+            const audioPath = document.getElementById('audioPath').value.trim();
+            if (!audioPath) {
+                alert('请输入音频文件路径');
+                return;
+            }
+
+            try {
+                await avatar.speak(audioPath);
+            } catch (error) {
+                alert('播放失败: ' + error.message);
+            }
+        });
+
+        // 暴露到全局，方便调试
+        window.avatar = avatar;
+    </script>
+</body>
+</html>

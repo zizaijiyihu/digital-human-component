@@ -142,7 +142,12 @@ export class DigitalHuman extends EventEmitter {
 
             // 5. 设置背景图片（如果有）
             if (this.config.backgroundImage) {
-                await this.setBackgroundImage(this.config.backgroundImage);
+                try {
+                    await this.setBackgroundImage(this.config.backgroundImage);
+                } catch (error) {
+                    console.warn('Failed to load background image, using background color instead:', error);
+                    // 继续初始化，只是没有背景图片
+                }
             }
 
             // 6. 标记为就绪

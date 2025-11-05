@@ -58,7 +58,8 @@ export class AnimationController {
     play(name, fadeTime = 0.3) {
         const animation = this.animations.get(name);
         if (!animation) {
-            console.warn(`Animation "${name}" not loaded`);
+            console.warn(`❌ Animation "${name}" not loaded`);
+            console.log('Available animations:', Array.from(this.animations.keys()));
             return;
         }
 
@@ -66,6 +67,7 @@ export class AnimationController {
 
         // 如果有正在播放的动画，淡出
         if (this.currentAction && this.currentAction !== action) {
+            console.log(`⏸️ Fading out previous animation`);
             this.currentAction.fadeOut(fadeTime);
         }
 
@@ -75,6 +77,7 @@ export class AnimationController {
         action.play();
 
         this.currentAction = action;
+        console.log(`▶️ Playing animation "${name}" (weight: ${action.getEffectiveWeight()})`);
     }
 
     /**

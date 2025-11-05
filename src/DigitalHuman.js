@@ -126,6 +126,9 @@ export class DigitalHuman extends EventEmitter {
 
             // 3. 初始化子模块
             this.animationController = new AnimationController(this.avatar, this.sceneManager.mixer);
+            // 将 AnimationController 创建的 mixer 回传给 SceneManager
+            this.sceneManager.mixer = this.animationController.mixer;
+
             this.lipSyncEngine = new LipSyncEngine(this.morphTargetMesh);
             this.expressionManager = new ExpressionManager(
                 this.morphTargetMesh,

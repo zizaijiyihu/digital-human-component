@@ -142,19 +142,19 @@ export class DigitalHuman extends EventEmitter {
                 await this.setBackgroundImage(this.config.backgroundImage);
             }
 
-            // 6. 自动启动模式
+            // 6. 标记为就绪
+            this.isReady = true;
+            this.emit('ready');
+            if (this.config.onReady) {
+                this.config.onReady();
+            }
+
+            // 7. 自动启动模式（必须在 isReady = true 之后）
             if (this.config.autoStart === 'listening') {
                 this.startListening();
             } else if (this.config.autoStart === 'speaking') {
                 // 说话模式需要音频，不自动启动
                 console.warn('DigitalHuman: autoStart "speaking" requires audio, skipping');
-            }
-
-            // 7. 标记为就绪
-            this.isReady = true;
-            this.emit('ready');
-            if (this.config.onReady) {
-                this.config.onReady();
             }
 
             if (this.config.debug) {

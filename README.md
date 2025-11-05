@@ -118,37 +118,39 @@ http://localhost:8000/examples/basic.html
 - 🔄 如果遇到模块导入错误，请强制刷新浏览器：`Ctrl+Shift+R` (Windows/Linux) 或 `Cmd+Shift+R` (Mac)
 - 🛑 停止服务器：在终端按 `Ctrl + C`
 
-### 方法三：使用构建后的文件
+### 方法三：在构建工具中使用（Webpack/Vite/Rollup）
 
-如果不想启动开发服务器，可以使用构建后的 UMD 版本：
+UMD 和 ES Module 构建版本适用于打包工具：
 
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        #avatar { width: 600px; height: 600px; }
-    </style>
-</head>
-<body>
-    <div id="avatar"></div>
-
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-    <script src="cdn/digital-human.min.js"></script>
-
-    <script>
-        const avatar = new DigitalHuman.DigitalHuman({
-            container: '#avatar',
-            modelUrl: 'https://models.readyplayer.me/690abee256dbb2e94779a60a.glb',
-            backgroundImage: 'cdn/images/办公背景.png',
-            autoStart: 'listening',
-            onReady: () => console.log('Ready!')
-        });
-    </script>
-</body>
-</html>
+**安装依赖：**
+```bash
+npm install three@0.160.0
 ```
+
+**使用 ES Module：**
+```javascript
+import { DigitalHuman } from 'digital-human/cdn/digital-human.esm.js';
+
+const avatar = new DigitalHuman({
+    container: '#avatar',
+    modelUrl: 'https://models.readyplayer.me/690abee256dbb2e94779a60a.glb',
+    autoStart: 'listening'
+});
+```
+
+**使用 UMD（在 script 标签中）：**
+```html
+<script src="node_modules/digital-human/cdn/digital-human.min.js"></script>
+<script>
+    const avatar = new DigitalHuman.DigitalHuman({
+        container: '#avatar',
+        modelUrl: 'https://models.readyplayer.me/690abee256dbb2e94779a60a.glb',
+        autoStart: 'listening'
+    });
+</script>
+```
+
+**注意**：UMD 版本需要 Three.js 作为全局变量或通过模块系统提供。对于直接在浏览器中使用，推荐方法一（CDN）或方法二（本地开发）。
 
 ## API 文档
 

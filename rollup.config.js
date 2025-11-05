@@ -10,10 +10,16 @@ export default [
             format: 'umd',
             name: 'DigitalHuman',
             globals: {
-                'three': 'THREE'
+                'three': 'THREE',
+                'three/addons/loaders/GLTFLoader.js': 'THREE',
+                'three/addons/controls/OrbitControls.js': 'THREE'
             }
         },
-        external: ['three'],
+        external: [
+            'three',
+            'three/addons/loaders/GLTFLoader.js',
+            'three/addons/controls/OrbitControls.js'
+        ],
         plugins: [resolve()]
     },
     // UMD 压缩版
@@ -24,10 +30,16 @@ export default [
             format: 'umd',
             name: 'DigitalHuman',
             globals: {
-                'three': 'THREE'
+                'three': 'THREE',
+                'three/addons/loaders/GLTFLoader.js': 'THREE',
+                'three/addons/controls/OrbitControls.js': 'THREE'
             }
         },
-        external: ['three'],
+        external: [
+            'three',
+            'three/addons/loaders/GLTFLoader.js',
+            'three/addons/controls/OrbitControls.js'
+        ],
         plugins: [resolve(), terser()]
     },
     // ES Module 格式
@@ -37,7 +49,11 @@ export default [
             file: 'cdn/digital-human.esm.js',
             format: 'es'
         },
-        external: ['three'],
+        external: [
+            'three',
+            'three/addons/loaders/GLTFLoader.js',
+            'three/addons/controls/OrbitControls.js'
+        ],
         plugins: [resolve()]
     }
 ];

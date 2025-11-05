@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简单测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        #avatar {
+            width: 600px;
+            height: 600px;
+            margin: 20px auto;
+            border: 2px solid #333;
+        }
+        #status {
+            text-align: center;
+            font-size: 18px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="text-align: center;">Digital Human 简单测试</h1>
+    <div id="status">正在加载模块...</div>
+    <div id="avatar"></div>
+
+    <!-- Import Map -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        console.log('Step 1: 开始加载模块...');
+
+        try {
+            console.log('Step 2: 导入 DigitalHuman...');
+            const { DigitalHuman } = await import('../src/index.js');
+            console.log('Step 3: DigitalHuman 导入成功', DigitalHuman);
+
+            document.getElementById('status').textContent = '✅ 模块加载成功！正在初始化...';
+
+            console.log('Step 4: 创建实例...');
+            const avatar = new DigitalHuman({
+                container: '#avatar',
+                modelUrl: 'https://models.readyplayer.me/690abee256dbb2e94779a60a.glb',
+                backgroundImage: '../cdn/images/办公背景.png',
+                autoStart: 'listening',
+                onReady: () => {
+                    document.getElementById('status').textContent = '✅ 数字人加载完成！';
+                    console.log('Step 5: 数字人准备就绪！');
+                },
+                onError: (error) => {
+                    document.getElementById('status').textContent = '❌ 错误: ' + error.message;
+                    console.error('错误:', error);
+                }
+            });
+
+            window.avatar = avatar;
+
+        } catch (error) {
+            document.getElementById('status').textContent = '❌ 模块加载失败: ' + error.message;
+            console.error('模块加载错误:', error);
+        }
+    </script>
+</body>
+</html>

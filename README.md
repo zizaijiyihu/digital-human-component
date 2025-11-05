@@ -115,6 +115,7 @@ http://localhost:8000/examples/basic.html
 **注意**：
 - ⚠️ 不要使用 `file://` 协议直接打开 HTML 文件，否则会遇到 CORS 错误！
 - ✅ 必须通过 `http://localhost` 访问才能正常加载 ES6 模块
+- 🔄 如果遇到模块导入错误，请强制刷新浏览器：`Ctrl+Shift+R` (Windows/Linux) 或 `Cmd+Shift+R` (Mac)
 - 🛑 停止服务器：在终端按 `Ctrl + C`
 
 ### 方法三：使用构建后的文件
@@ -315,21 +316,29 @@ npm run build
 - 使用本地服务器（参见"快速开始 - 方法二"）
 - 或使用构建后的 UMD 版本（`cdn/digital-human.min.js`）
 
-### 2. 模型加载失败
+### 2. 模块导入错误：`Failed to resolve module specifier`
+
+**原因**：浏览器缓存了旧版本的文件。
+
+**解决方案**：
+- 强制刷新浏览器：`Ctrl+Shift+R` (Windows/Linux) 或 `Cmd+Shift+R` (Mac)
+- 或在开发者工具中禁用缓存（Console → Settings → Disable cache）
+
+### 3. 模型加载失败
 
 **检查**：
 - Ready Player Me 模型 URL 是否正确
 - 模型是否包含 ARKit 标准的 morph targets
 - 网络连接是否正常
 
-### 3. 唇形同步不准确
+### 4. 唇形同步不准确
 
 **优化建议**：
 - 使用清晰的音频文件（采样率 ≥ 16kHz）
 - 确保音频格式为 wav 或 mp3
 - 检查音频是否包含背景噪音
 
-### 4. 动画不流畅
+### 5. 动画不流畅
 
 **优化建议**：
 - 检查 GPU 性能

@@ -67,8 +67,8 @@ export class SceneManager {
 
         this.container.appendChild(this.renderer.domElement);
 
-        // 创建控制器
-        if (this.config.enableOrbitControls !== false) {
+        // 创建控制器（默认禁用，固定视角）
+        if (this.config.enableOrbitControls === true) {
             this.controls = new OrbitControls(this.camera, this.renderer.domElement);
             const camTarget = this.config.cameraTarget || DEFAULT_CONFIG.CAMERA.target;
             this.controls.target.set(camTarget.x, camTarget.y, camTarget.z);

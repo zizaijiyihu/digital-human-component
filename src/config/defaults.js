@@ -57,10 +57,10 @@ export const DEFAULT_CONFIG = {
 
     // 默认灯光配置
     LIGHTS: {
-        ambient: { color: 0xffffff, intensity: 0.7 },
-        key: { color: 0xffffff, intensity: 0.8, position: { x: 0, y: 2, z: 1 } },
-        fill: { color: 0xffffff, intensity: 0.4, position: { x: 0, y: 1.6, z: 0.8 } },
-        rim: { color: 0xaaccff, intensity: 0.3, position: { x: 0, y: 1.8, z: -0.5 } }
+        ambient: { color: 0xffffff, intensity: 1.0 },  // 提高环境光，整体更亮
+        key: { color: 0xffffff, intensity: 1.2, position: { x: 0, y: 2, z: 1 } },  // 提高主光源
+        fill: { color: 0xffffff, intensity: 0.6, position: { x: 0, y: 1.6, z: 0.8 } },  // 提高补光，照亮脸部阴影
+        rim: { color: 0xaaccff, intensity: 0.4, position: { x: 0, y: 1.8, z: -0.5 } }  // 轮廓光稍微提高
     },
 
     // 表情参数

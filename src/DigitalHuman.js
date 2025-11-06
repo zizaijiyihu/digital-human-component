@@ -35,9 +35,9 @@ export class DigitalHuman extends EventEmitter {
                 : DEFAULT_CONFIG.DEFAULT_BACKGROUND_IMAGE,
             useDefaultBackground: options.backgroundImage !== undefined ? false : true,
 
-            // 尺寸
-            width: options.width || 600,
-            height: options.height || 600,
+            // 尺寸（不设置默认值，让 SceneManager 根据容器实际尺寸决定）
+            width: options.width,
+            height: options.height,
 
             // 相机配置
             cameraPosition: options.cameraPosition || DEFAULT_CONFIG.CAMERA.position,

@@ -60,6 +60,11 @@ export class SceneManager {
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(width, height);
         this.renderer.shadowMap.enabled = true;
+
+        // 初始时设置 canvas 为透明，等加载完成后淡入
+        this.renderer.domElement.style.opacity = '0';
+        this.renderer.domElement.style.transition = 'opacity 0.8s ease-in';
+
         this.container.appendChild(this.renderer.domElement);
 
         // 创建控制器
@@ -324,6 +329,21 @@ export class SceneManager {
                     this.loadingElement = null;
                 }
             }, 500);
+        }
+
+        // 同时让场景淡入显示
+        this.showScene();
+    }
+
+    /**
+     * 显示场景（淡入效果）
+     */
+    showScene() {
+        if (this.renderer && this.renderer.domElement) {
+            // 使用 requestAnimationFrame 确保样式已应用
+            requestAnimationFrame(() => {
+                this.renderer.domElement.style.opacity = '1';
+            });
         }
     }
 

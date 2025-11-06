@@ -63,7 +63,11 @@ export class DigitalHuman extends EventEmitter {
             onSpeakEnd: options.onSpeakEnd || null,
             onListenStart: options.onListenStart || null,
             onListenEnd: options.onListenEnd || null,
+            onLoadingStart: options.onLoadingStart || null,
             onError: options.onError || null,
+
+            // 加载动画
+            showLoading: options.showLoading !== false,  // 默认显示
 
             // 调试
             showControls: options.showControls || false,
@@ -121,6 +125,16 @@ export class DigitalHuman extends EventEmitter {
                 enableOrbitControls: this.config.enableOrbitControls
             });
 
+            // 显示加载动画
+            if (this.config.showLoading) {
+                this.sceneManager.showLoading();
+            }
+
+            // 触发加载开始回调
+            if (this.config.onLoadingStart) {
+                this.config.onLoadingStart();
+            }
+
             // 2. 加载模型
             await this._loadModel();
 
@@ -152,6 +166,12 @@ export class DigitalHuman extends EventEmitter {
 
             // 6. 标记为就绪
             this.isReady = true;
+
+            // 隐藏加载动画
+            if (this.config.showLoading) {
+                this.sceneManager.hideLoading();
+            }
+
             this.emit('ready');
             if (this.config.onReady) {
                 this.config.onReady();

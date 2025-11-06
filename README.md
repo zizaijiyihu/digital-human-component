@@ -15,6 +15,7 @@
 - 🎨 **开箱即用**
   - 默认动画和背景图片（办公背景）
   - 自动从 CDN 加载资源
+  - 内置加载动画
   - 无需额外配置
 
 ## 🚀 快速开始
@@ -125,7 +126,11 @@ const avatar = new DigitalHuman({
     enableBrowRaising: true,           // 启用挑眉
     enableHeadTilting: true,           // 启用歪头
 
+    // 加载动画
+    showLoading: true,                 // 显示内置加载动画（默认 true）
+
     // 事件回调
+    onLoadingStart: () => {},          // 加载开始（可选，用于自定义加载效果）
     onReady: () => {},                 // 加载完成
     onSpeakStart: () => {},            // 开始说话
     onSpeakEnd: () => {},              // 说话结束
@@ -215,7 +220,32 @@ digital-human-component/
 - 是否看到"✅ Animation loaded successfully"日志？
 - 是否通过本地服务器访问（不是 file:// 协议）？
 
-### 4. 唇形同步不准确？
+### 4. 如何自定义加载动画？
+
+**方式一：禁用内置加载动画**
+```javascript
+const avatar = new DigitalHuman({
+    container: '#avatar',
+    showLoading: false  // 禁用内置加载动画
+});
+```
+
+**方式二：使用回调自定义**
+```javascript
+const avatar = new DigitalHuman({
+    container: '#avatar',
+    onLoadingStart: () => {
+        // 显示你的自定义加载效果
+        document.getElementById('my-loader').style.display = 'block';
+    },
+    onReady: () => {
+        // 隐藏你的自定义加载效果
+        document.getElementById('my-loader').style.display = 'none';
+    }
+});
+```
+
+### 5. 唇形同步不准确？
 
 **优化建议**：
 - 使用清晰的音频文件（采样率 ≥ 16kHz）

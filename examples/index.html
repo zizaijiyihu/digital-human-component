@@ -104,8 +104,14 @@
             // 不设置 modelUrl，会使用默认模型
             // 不设置 backgroundImage，会使用默认办公背景
             // 不设置 animations，会使用默认动画
+            // 不设置 showLoading，默认显示内置加载动画
             autoStart: 'listening',
             debug: true,
+
+            // 可选：自定义加载开始回调
+            onLoadingStart: () => {
+                console.log('开始加载...');
+            },
 
             onReady: () => {
                 document.getElementById('status').textContent = '✅ 加载完成！';

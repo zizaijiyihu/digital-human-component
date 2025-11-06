@@ -24,6 +24,9 @@ export class SceneManager {
         // 动画循环
         this.animationId = null;
 
+        // 加载动画元素
+        this.loadingElement = null;
+
         this._init();
     }
 
@@ -199,6 +202,83 @@ export class SceneManager {
             this.backgroundTexture = null;
         }
         this.scene.background = new THREE.Color(this.config.backgroundColor || '#1a1a2e');
+    }
+
+    /**
+     * 显示加载动画
+     */
+    showLoading() {
+        if (this.loadingElement) return;
+
+        // 创建加载容器
+        this.loadingElement = document.createElement('div');
+        this.loadingElement.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(26, 26, 46, 0.95);
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        `;
+
+        // 创建旋转圆圈
+        const spinner = document.createElement('div');
+        spinner.style.cssText = `
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        `;
+
+        // 创建加载文本
+        const text = document.createElement('div');
+        text.textContent = '加载中...';
+        text.style.cssText = `
+            margin-top: 20px;
+            color: white;
+            font-size: 16px;
+            font-family: Arial, sans-serif;
+        `;
+
+        // 添加旋转动画
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+
+        this.loadingElement.appendChild(spinner);
+        this.loadingElement.appendChild(text);
+        this.container.appendChild(this.loadingElement);
+    }
+
+    /**
+     * 隐藏加载动画
+     */
+    hideLoading() {
+        if (this.loadingElement) {
+            // 添加淡出动画
+            this.loadingElement.style.transition = 'opacity 0.5s ease';
+            this.loadingElement.style.opacity = '0';
+
+            setTimeout(() => {
+                if (this.loadingElement && this.loadingElement.parentNode) {
+                    this.loadingElement.parentNode.removeChild(this.loadingElement);
+                    this.loadingElement = null;
+                }
+            }, 500);
+        }
     }
 
     /**

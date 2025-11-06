@@ -227,7 +227,7 @@ export class SceneManager {
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             z-index: 1000;
         `;
 
@@ -271,7 +271,7 @@ export class SceneManager {
         const statusText = document.createElement('div');
         statusText.textContent = '正在连接通话...';
         statusText.style.cssText = `
-            color: white;
+            color: #2d3748;
             font-size: 18px;
             font-weight: 500;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -282,7 +282,7 @@ export class SceneManager {
         const hintText = document.createElement('div');
         hintText.textContent = '请稍候...';
         hintText.style.cssText = `
-            color: rgba(255, 255, 255, 0.6);
+            color: #718096;
             font-size: 14px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         `;

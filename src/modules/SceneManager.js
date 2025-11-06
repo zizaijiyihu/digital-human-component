@@ -205,7 +205,7 @@ export class SceneManager {
     }
 
     /**
-     * 显示加载动画
+     * 显示加载动画（视频通话连接风格）
      */
     showLoading() {
         if (this.loadingElement) return;
@@ -222,44 +222,85 @@ export class SceneManager {
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            background: rgba(26, 26, 46, 0.95);
+            background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
             z-index: 1000;
-            backdrop-filter: blur(10px);
         `;
 
-        // 创建旋转圆圈
-        const spinner = document.createElement('div');
-        spinner.style.cssText = `
-            width: 60px;
-            height: 60px;
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            border-top-color: #667eea;
+        // 创建头像占位符（模拟通话对象）
+        const avatar = document.createElement('div');
+        avatar.style.cssText = `
+            width: 120px;
+            height: 120px;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+            position: relative;
         `;
 
-        // 创建加载文本
-        const text = document.createElement('div');
-        text.textContent = '加载中...';
-        text.style.cssText = `
-            margin-top: 20px;
+        // 头像内的图标
+        const avatarIcon = document.createElement('div');
+        avatarIcon.innerHTML = `
+            <svg width="60" height="60" viewBox="0 0 24 24" fill="none">
+                <path d="M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12ZM12 14C9.33 14 4 15.34 4 18V20H20V18C20 15.34 14.67 14 12 14Z" fill="white"/>
+            </svg>
+        `;
+        avatar.appendChild(avatarIcon);
+
+        // 创建脉冲圆环动画（模拟呼叫）
+        const pulseRing = document.createElement('div');
+        pulseRing.style.cssText = `
+            position: absolute;
+            width: 140px;
+            height: 140px;
+            border: 3px solid rgba(102, 126, 234, 0.6);
+            border-radius: 50%;
+            animation: pulse 1.5s ease-out infinite;
+        `;
+        avatar.appendChild(pulseRing);
+
+        // 状态文本
+        const statusText = document.createElement('div');
+        statusText.textContent = '正在连接通话...';
+        statusText.style.cssText = `
             color: white;
-            font-size: 16px;
-            font-family: Arial, sans-serif;
+            font-size: 18px;
+            font-weight: 500;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin-bottom: 10px;
         `;
 
-        // 添加旋转动画
+        // 提示文本
+        const hintText = document.createElement('div');
+        hintText.textContent = '请稍候...';
+        hintText.style.cssText = `
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        `;
+
+        // 添加动画样式
         const style = document.createElement('style');
         style.textContent = `
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
+            @keyframes pulse {
+                0% {
+                    transform: scale(1);
+                    opacity: 1;
+                }
+                100% {
+                    transform: scale(1.3);
+                    opacity: 0;
+                }
             }
         `;
         document.head.appendChild(style);
 
-        this.loadingElement.appendChild(spinner);
-        this.loadingElement.appendChild(text);
+        this.loadingElement.appendChild(avatar);
+        this.loadingElement.appendChild(statusText);
+        this.loadingElement.appendChild(hintText);
         this.container.appendChild(this.loadingElement);
     }
 

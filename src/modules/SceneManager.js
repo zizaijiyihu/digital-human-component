@@ -41,6 +41,14 @@ export class SceneManager {
         // 创建相机（默认使用容器实际尺寸，避免拉伸）
         const width = this.config.width || this.container.clientWidth || 600;
         const height = this.config.height || this.container.clientHeight || 600;
+
+        console.log('📐 SceneManager initialized with size:', {
+            width,
+            height,
+            aspectRatio: (width / height).toFixed(2),
+            containerSize: `${this.container.clientWidth}x${this.container.clientHeight}`
+        });
+
         this.camera = new THREE.PerspectiveCamera(
             DEFAULT_CONFIG.CAMERA.fov,
             width / height,
@@ -64,10 +72,6 @@ export class SceneManager {
         // 初始时设置 canvas 为透明，等加载完成后淡入
         this.renderer.domElement.style.opacity = '0';
         this.renderer.domElement.style.transition = 'opacity 0.8s ease-in';
-
-        // 让 canvas 填充整个容器
-        this.renderer.domElement.style.width = '100%';
-        this.renderer.domElement.style.height = '100%';
         this.renderer.domElement.style.display = 'block';
 
         this.container.appendChild(this.renderer.domElement);

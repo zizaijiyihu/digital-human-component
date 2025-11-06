@@ -38,9 +38,9 @@ export class SceneManager {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.config.backgroundColor || '#1a1a2e');
 
-        // 创建相机
-        const width = this.config.width || 600;
-        const height = this.config.height || 600;
+        // 创建相机（默认使用容器实际尺寸，避免拉伸）
+        const width = this.config.width || this.container.clientWidth || 600;
+        const height = this.config.height || this.container.clientHeight || 600;
         this.camera = new THREE.PerspectiveCamera(
             DEFAULT_CONFIG.CAMERA.fov,
             width / height,

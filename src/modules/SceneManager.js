@@ -51,6 +51,11 @@ export class SceneManager {
         const camPos = this.config.cameraPosition || DEFAULT_CONFIG.CAMERA.position;
         this.camera.position.set(camPos.x, camPos.y, camPos.z);
 
+        // 确保容器是相对定位，这样加载动画才能正确定位
+        if (getComputedStyle(this.container).position === 'static') {
+            this.container.style.position = 'relative';
+        }
+
         // 创建渲染器
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(width, height);

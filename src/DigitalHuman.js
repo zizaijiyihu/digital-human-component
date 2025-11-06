@@ -71,7 +71,7 @@ export class DigitalHuman extends EventEmitter {
 
             // 调试
             showControls: options.showControls || false,
-            enableOrbitControls: options.enableOrbitControls !== false,
+            enableOrbitControls: options.enableOrbitControls === true,  // 默认禁用，固定视角
             debug: options.debug || false
         };
 

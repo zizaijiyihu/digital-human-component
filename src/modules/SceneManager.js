@@ -65,6 +65,11 @@ export class SceneManager {
         this.renderer.domElement.style.opacity = '0';
         this.renderer.domElement.style.transition = 'opacity 0.8s ease-in';
 
+        // 让 canvas 填充整个容器
+        this.renderer.domElement.style.width = '100%';
+        this.renderer.domElement.style.height = '100%';
+        this.renderer.domElement.style.display = 'block';
+
         this.container.appendChild(this.renderer.domElement);
 
         // 创建控制器（默认禁用，固定视角）

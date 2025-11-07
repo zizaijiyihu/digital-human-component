@@ -2,8 +2,8 @@
  * 默认配置
  */
 export const DEFAULT_CONFIG = {
-    // CDN 版本号（使用 main 分支始终指向最新版本）
-    CDN_VERSION: 'main',
+    // CDN 版本号（latest 指向最新的 Git 标签）
+    CDN_VERSION: 'latest',
 
     // CDN 基础地址
     get CDN_BASE() {

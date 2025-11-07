@@ -21,9 +21,9 @@ export const DEFAULT_CONFIG = {
         };
     },
 
-    // 默认背景图片
+    // 默认背景图片（优化后的 JPEG 格式，371KB）
     get DEFAULT_BACKGROUND_IMAGE() {
-        return `${this.CDN_BASE}/images/office-background.png`;
+        return `${this.CDN_BASE}/images/office-background.jpg`;
     },
 
     // 音素映射表（Oculus ARKit 标准）

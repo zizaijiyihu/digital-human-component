@@ -16,7 +16,7 @@ export class AudioStreamQueue {
 
         // 时间管理
         this.nextStartTime = 0;
-        this.currentSource = null;
+        this.activeSources = [];  // 改为数组，支持多个并发音频源
 
         // 事件回调
         this.onStart = null;
@@ -103,15 +103,15 @@ export class AudioStreamQueue {
         this.isStopped = true;
         this.isPlaying = false;
 
-        // 停止当前播放
-        if (this.currentSource) {
+        // 停止所有活跃的音频源
+        this.activeSources.forEach(source => {
             try {
-                this.currentSource.stop();
+                source.stop();
             } catch (e) {
                 // 可能已经停止
             }
-            this.currentSource = null;
-        }
+        });
+        this.activeSources = [];
 
         // 清空队列
         this.queue = [];
@@ -155,8 +155,8 @@ export class AudioStreamQueue {
      */
     _playNext() {
         if (this.isStopped || this.queue.length === 0) {
-            // 如果队列为空且已经 finalized，触发结束回调
-            if (this.isFinalized && this.queue.length === 0) {
+            // 如果队列为空且已经 finalized，并且没有活跃的音频源，触发结束回调
+            if (this.isFinalized && this.queue.length === 0 && this.activeSources.length === 0) {
                 this.isPlaying = false;
                 if (this.onEnd) {
                     this.onEnd();
@@ -176,7 +176,11 @@ export class AudioStreamQueue {
 
         // 设置结束回调
         source.onended = () => {
-            this.currentSource = null;
+            // 从活跃列表中移除
+            const index = this.activeSources.indexOf(source);
+            if (index > -1) {
+                this.activeSources.splice(index, 1);
+            }
 
             // 检查是否需要更多数据
             const queueDuration = this._getQueueDuration();
@@ -184,8 +188,13 @@ export class AudioStreamQueue {
                 this.onNeedData();
             }
 
-            // 播放下一个
-            this._playNext();
+            // 检查是否所有音频都已播放完成
+            if (this.isFinalized && this.queue.length === 0 && this.activeSources.length === 0) {
+                this.isPlaying = false;
+                if (this.onEnd) {
+                    this.onEnd();
+                }
+            }
         };
 
         // 计算开始时间
@@ -193,10 +202,15 @@ export class AudioStreamQueue {
 
         // 开始播放
         source.start(startTime);
-        this.currentSource = source;
+        this.activeSources.push(source);
 
         // 更新下一个开始时间
         this.nextStartTime = startTime + audioBuffer.duration;
+
+        // 立即尝试播放下一个片段（允许多个片段并发调度）
+        if (this.queue.length > 0) {
+            this._playNext();
+        }
     }
 
     /**
@@ -204,7 +218,8 @@ export class AudioStreamQueue {
      * @private
      */
     _scheduleNext() {
-        if (this.queue.length > 0 && !this.currentSource) {
+        // 移除了 !this.currentSource 检查，允许多个片段并发调度
+        if (this.queue.length > 0) {
             this._playNext();
         }
     }

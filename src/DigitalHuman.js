@@ -499,10 +499,16 @@ export class DigitalHuman extends EventEmitter {
             await this.streamAudioContext.resume();
         }
 
-        // 创建音频流队列
+        // 创建音频流队列（支持 PCM 自动转换）
         this.audioStreamQueue = new AudioStreamQueue(
             this.streamAudioContext,
-            this.streamAnalyser
+            this.streamAnalyser,
+            {
+                autoPCMConvert: options.autoPCMConvert !== false,
+                sampleRate: options.sampleRate || 16000,
+                numChannels: options.numChannels || 1,
+                bitDepth: options.bitDepth || 16
+            }
         );
 
         // 设置队列事件

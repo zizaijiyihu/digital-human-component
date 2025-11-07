@@ -1,9 +1,11 @@
+import { processAudioData } from '../utils/AudioUtils.js';
+
 /**
  * 音频流队列管理器
  * 用于处理流式音频片段的无缝播放
  */
 export class AudioStreamQueue {
-    constructor(audioContext, analyser) {
+    constructor(audioContext, analyser, options = {}) {
         this.audioContext = audioContext;
         this.analyser = analyser;
 
@@ -26,7 +28,15 @@ export class AudioStreamQueue {
             // 预加载阈值：当队列中音频少于此时长(秒)时触发 onNeedData
             bufferThreshold: 0.5,
             // 最大队列长度(秒)，防止内存溢出
-            maxQueueDuration: 10
+            maxQueueDuration: 10,
+            // 自动 PCM 转换（如果检测到 PCM 格式）
+            autoPCMConvert: options.autoPCMConvert !== false,
+            // PCM 音频参数（仅在自动转换时使用）
+            pcmOptions: {
+                sampleRate: options.sampleRate || 16000,
+                numChannels: options.numChannels || 1,
+                bitDepth: options.bitDepth || 16
+            }
         };
 
         this.onNeedData = null;
@@ -34,7 +44,7 @@ export class AudioStreamQueue {
 
     /**
      * 添加音频片段到队列
-     * @param {ArrayBuffer} audioData - 音频数据
+     * @param {ArrayBuffer} audioData - 音频数据（支持 PCM 或 WAV 格式）
      * @returns {Promise<void>}
      */
     async enqueue(audioData) {
@@ -43,8 +53,14 @@ export class AudioStreamQueue {
         }
 
         try {
+            // 自动处理音频数据（如果是 PCM 则转换为 WAV）
+            let processedData = audioData;
+            if (this.config.autoPCMConvert) {
+                processedData = processAudioData(audioData, this.config.pcmOptions);
+            }
+
             // 解码音频数据
-            const audioBuffer = await this.audioContext.decodeAudioData(audioData);
+            const audioBuffer = await this.audioContext.decodeAudioData(processedData);
 
             // 检查队列长度
             const queueDuration = this._getQueueDuration();

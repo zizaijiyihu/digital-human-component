@@ -347,10 +347,29 @@ await controller.enqueueAudio(audioChunkArrayBuffer);
 
 ### 音频格式要求
 
-- **支持格式**：任何浏览器支持的音频格式（WAV, MP3, OGG 等）
-- **推荐采样率**：≥ 16kHz
+- **支持格式**：
+  - ✅ WAV, MP3, OGG 等标准格式
+  - ✅ **PCM 原始格式（自动转换）** - 大模型 TTS 常用格式
+- **推荐采样率**：≥ 16kHz（推荐 16kHz 或 24kHz）
 - **片段大小**：建议每个片段 100-500ms 的音频数据
 - **编码**：PCM 或压缩格式均可（会自动解码）
+
+#### PCM 音频支持（新功能）
+
+组件已内置 **PCM 自动检测和转换**功能！大模型 TTS 通常返回纯 PCM 格式，无需手动处理：
+
+```javascript
+await avatar.speakStreaming({
+    audioStream: fetchPCMStream(),  // 后端返回 PCM 流
+
+    // 指定 PCM 参数（与后端一致）
+    sampleRate: 16000,   // 采样率
+    numChannels: 1,      // 声道数
+    bitDepth: 16         // 位深度
+});
+```
+
+详见 [PCM 音频处理指南](docs/PCM_AUDIO_GUIDE.md)
 
 ### 注意事项
 

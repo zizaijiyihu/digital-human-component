@@ -27,13 +27,18 @@ export class LipSyncEngine {
         this.currentViseme = 'viseme_sil';
         this.lastPhonemeTime = 0;
 
+        // 流式模式相关
+        this.isStreamingMode = false;
+        this.externalAnalyser = null;
+        this.streamStartTime = 0;
+
         // 配置
         this.config = DEFAULT_CONFIG.LIP_SYNC;
         this.phonemeMap = DEFAULT_CONFIG.PHONEME_TO_VISEME;
     }
 
     /**
-     * 启动口型同步
+     * 启动口型同步（传统模式：使用 audio 元素）
      */
     start(audioElement) {
         if (!this.morphTargetMesh) {
@@ -41,8 +46,8 @@ export class LipSyncEngine {
             return;
         }
 
-        // 初始化音频上下文
-        if (!this.audioContext) {
+        // 初始化音频上下文（如果不存在或已关闭，则创建新的）
+        if (!this.audioContext || this.audioContext.state === 'closed') {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             this.analyser = this.audioContext.createAnalyser();
             this.analyser.fftSize = this.config.fftSize;
@@ -55,7 +60,11 @@ export class LipSyncEngine {
 
         // 连接音频源
         if (this.audioSource) {
-            this.audioSource.disconnect();
+            try {
+                this.audioSource.disconnect();
+            } catch (e) {
+                // 已经断开连接
+            }
         }
 
         try {
@@ -69,12 +78,47 @@ export class LipSyncEngine {
         // 重置状态
         this.isActive = true;
         this.isClosing = false;
+        this.isStreamingMode = false;
         this.currentPhoneme = 'sil';
         this.currentViseme = 'viseme_sil';
         this.lastPhonemeTime = Date.now();
 
         // 开始更新循环
         this._update(audioElement);
+    }
+
+    /**
+     * 启动流式口型同步（使用外部 AnalyserNode）
+     * @param {AnalyserNode} analyser - Web Audio API 的 AnalyserNode
+     * @param {AudioContext} audioContext - 音频上下文
+     */
+    startStreaming(analyser, audioContext) {
+        if (!this.morphTargetMesh) {
+            console.error('❌ morphTargetMesh not initialized');
+            return;
+        }
+
+        if (!analyser || !audioContext) {
+            console.error('❌ analyser and audioContext are required for streaming mode');
+            return;
+        }
+
+        // 保存外部 analyser
+        this.externalAnalyser = analyser;
+        this.audioContext = audioContext;
+        this.analyser = analyser;
+
+        // 重置状态
+        this.isActive = true;
+        this.isClosing = false;
+        this.isStreamingMode = true;
+        this.currentPhoneme = 'sil';
+        this.currentViseme = 'viseme_sil';
+        this.lastPhonemeTime = Date.now();
+        this.streamStartTime = Date.now();
+
+        // 开始更新循环（流式模式）
+        this._updateStreaming();
     }
 
     /**
@@ -87,10 +131,47 @@ export class LipSyncEngine {
 
         this.isActive = false;
         this.isClosing = true;
+
+        // 清理流式模式状态
+        if (this.isStreamingMode) {
+            this.externalAnalyser = null;
+        }
     }
 
     /**
-     * 更新循环
+     * 流式模式更新循环
+     */
+    _updateStreaming() {
+        if (!this.isActive && !this.isClosing) {
+            return;
+        }
+
+        // 闭合逻辑
+        if (this.isClosing) {
+            this._closeVisemes();
+            if (!this.isClosing) {
+                return; // 闭合完成
+            }
+            requestAnimationFrame(() => this._updateStreaming());
+            return;
+        }
+
+        // 继续更新
+        requestAnimationFrame(() => this._updateStreaming());
+
+        // 获取频率数据
+        const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+        this.analyser.getByteFrequencyData(dataArray);
+
+        // 使用当前时间模拟 currentTime
+        const elapsedTime = (Date.now() - this.streamStartTime) / 1000;
+
+        // 执行音素分析和更新
+        this._analyzeAndUpdateVisemes(dataArray, elapsedTime);
+    }
+
+    /**
+     * 更新循环（传统模式）
      */
     _update(audioElement) {
         if (!this.isActive && !this.isClosing) {
@@ -99,39 +180,10 @@ export class LipSyncEngine {
 
         // 闭合逻辑
         if (this.isClosing) {
-            let allClosed = true;
-
-            // 衰减所有 visemes
-            Object.values(this.phonemeMap).forEach(visemeName => {
-                const idx = this.morphTargetDict[visemeName];
-                if (idx !== undefined) {
-                    const val = this.morphTargetMesh.morphTargetInfluences[idx] || 0;
-                    if (val > 0.001) {
-                        this.morphTargetMesh.morphTargetInfluences[idx] = val * this.config.decayRate.closing;
-                        allClosed = false;
-                    } else {
-                        this.morphTargetMesh.morphTargetInfluences[idx] = 0;
-                    }
-                }
-            });
-
-            // 衰减 jawOpen
-            const jawIdx = this.morphTargetDict['jawOpen'];
-            if (jawIdx !== undefined) {
-                const val = this.morphTargetMesh.morphTargetInfluences[jawIdx] || 0;
-                if (val > 0.001) {
-                    this.morphTargetMesh.morphTargetInfluences[jawIdx] = val * this.config.decayRate.closing;
-                    allClosed = false;
-                } else {
-                    this.morphTargetMesh.morphTargetInfluences[jawIdx] = 0;
-                }
+            this._closeVisemes();
+            if (!this.isClosing) {
+                return; // 闭合完成
             }
-
-            if (allClosed) {
-                this.isClosing = false;
-                return;
-            }
-
             requestAnimationFrame(() => this._update(audioElement));
             return;
         }
@@ -151,6 +203,55 @@ export class LipSyncEngine {
         const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
         this.analyser.getByteFrequencyData(dataArray);
 
+        // 执行音素分析和更新
+        this._analyzeAndUpdateVisemes(dataArray, audioElement.currentTime);
+    }
+
+    /**
+     * 闭合 visemes（共享方法）
+     * @private
+     */
+    _closeVisemes() {
+        let allClosed = true;
+
+        // 衰减所有 visemes
+        Object.values(this.phonemeMap).forEach(visemeName => {
+            const idx = this.morphTargetDict[visemeName];
+            if (idx !== undefined) {
+                const val = this.morphTargetMesh.morphTargetInfluences[idx] || 0;
+                if (val > 0.001) {
+                    this.morphTargetMesh.morphTargetInfluences[idx] = val * this.config.decayRate.closing;
+                    allClosed = false;
+                } else {
+                    this.morphTargetMesh.morphTargetInfluences[idx] = 0;
+                }
+            }
+        });
+
+        // 衰减 jawOpen
+        const jawIdx = this.morphTargetDict['jawOpen'];
+        if (jawIdx !== undefined) {
+            const val = this.morphTargetMesh.morphTargetInfluences[jawIdx] || 0;
+            if (val > 0.001) {
+                this.morphTargetMesh.morphTargetInfluences[jawIdx] = val * this.config.decayRate.closing;
+                allClosed = false;
+            } else {
+                this.morphTargetMesh.morphTargetInfluences[jawIdx] = 0;
+            }
+        }
+
+        if (allClosed) {
+            this.isClosing = false;
+        }
+    }
+
+    /**
+     * 分析音频频谱并更新 visemes（共享方法）
+     * @private
+     * @param {Uint8Array} dataArray - 频谱数据
+     * @param {number} currentTime - 当前播放时间（秒）
+     */
+    _analyzeAndUpdateVisemes(dataArray, currentTime) {
         // 频段分析（5段）
         let veryLow = 0, low = 0, mid = 0, high = 0, veryHigh = 0;
 
@@ -167,7 +268,6 @@ export class LipSyncEngine {
         veryHigh /= 60 * 255;
 
         const totalVolume = (veryLow + low + mid + high + veryHigh) / 5;
-        const currentTime = audioElement.currentTime;
         const syllableProgress = (currentTime * 1000 % this.config.syllableDuration) / this.config.syllableDuration;
 
         // 音素推断

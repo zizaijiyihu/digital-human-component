@@ -7,6 +7,7 @@ import { AnimationController } from './modules/AnimationController.js';
 import { LipSyncEngine } from './modules/LipSyncEngine.js';
 import { ExpressionManager } from './modules/ExpressionManager.js';
 import { EventEmitter } from './utils/EventEmitter.js';
+import { AudioStreamQueue } from './modules/AudioStreamQueue.js';
 
 /**
  * 数字人组件
@@ -90,6 +91,11 @@ export class DigitalHuman extends EventEmitter {
         this.animationController = null;
         this.lipSyncEngine = null;
         this.expressionManager = null;
+
+        // 流式音频相关
+        this.audioStreamQueue = null;
+        this.streamAudioContext = null;
+        this.streamAnalyser = null;
 
         // 资源引用
         this.avatar = null;
@@ -433,9 +439,165 @@ export class DigitalHuman extends EventEmitter {
         // 停止表情
         this.expressionManager.stopSpeakingMode();
 
+        // 停止流式音频队列（如果有）
+        if (this.audioStreamQueue) {
+            this.audioStreamQueue.stop();
+            this.audioStreamQueue = null;
+        }
+
         if (this.config.debug) {
             console.log('⏹ Speaking mode stopped');
         }
+    }
+
+    /**
+     * 流式说话（支持实时音频流）
+     * @param {Object} options - 配置选项
+     * @param {AsyncGenerator<ArrayBuffer>|Function} options.audioStream - 音频流生成器或回调函数
+     * @param {string} [options.sampleRate=16000] - 音频采样率
+     * @param {Function} [options.onChunkReceived] - 收到音频片段时的回调
+     * @param {Function} [options.onStreamEnd] - 流结束时的回调
+     * @returns {Object} 控制对象 { stop, isPlaying }
+     */
+    async speakStreaming(options) {
+        if (!this.isReady) {
+            console.warn('DigitalHuman: not ready yet');
+            return null;
+        }
+
+        if (!options || !options.audioStream) {
+            throw new Error('audioStream is required for streaming mode');
+        }
+
+        // 停止聆听模式
+        if (this.currentMode === 'listening') {
+            this.stopListening();
+        }
+
+        // 停止之前的说话模式
+        if (this.currentMode === 'speaking') {
+            this.stopSpeaking();
+        }
+
+        this.currentMode = 'speaking';
+
+        // 播放说话动画
+        this.animationController.play('talking');
+
+        // 启动说话时的眨眼
+        this.expressionManager.startSpeakingMode();
+
+        // 初始化流式音频上下文
+        if (!this.streamAudioContext) {
+            this.streamAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.streamAnalyser = this.streamAudioContext.createAnalyser();
+            this.streamAnalyser.fftSize = DEFAULT_CONFIG.LIP_SYNC.fftSize;
+            this.streamAnalyser.connect(this.streamAudioContext.destination);
+        }
+
+        if (this.streamAudioContext.state === 'suspended') {
+            await this.streamAudioContext.resume();
+        }
+
+        // 创建音频流队列
+        this.audioStreamQueue = new AudioStreamQueue(
+            this.streamAudioContext,
+            this.streamAnalyser
+        );
+
+        // 设置队列事件
+        this.audioStreamQueue.onStart = () => {
+            // 启动流式口型同步
+            this.lipSyncEngine.startStreaming(this.streamAnalyser, this.streamAudioContext);
+
+            this.emit('speakStart', { streaming: true });
+            if (this.config.onSpeakStart) {
+                this.config.onSpeakStart({ streaming: true });
+            }
+
+            if (this.config.debug) {
+                console.log('🗣️ Streaming speaking mode started');
+            }
+        };
+
+        this.audioStreamQueue.onEnd = () => {
+            this.lipSyncEngine.stop();
+            this.currentMode = null;
+
+            this.emit('speakEnd');
+            if (this.config.onSpeakEnd) {
+                this.config.onSpeakEnd();
+            }
+
+            if (options.onStreamEnd) {
+                options.onStreamEnd();
+            }
+
+            if (this.config.debug) {
+                console.log('✅ Streaming speaking mode ended');
+            }
+        };
+
+        this.audioStreamQueue.onError = (error) => {
+            console.error('AudioStreamQueue error:', error);
+            this.emit('error', error);
+            if (this.config.onError) {
+                this.config.onError(error);
+            }
+        };
+
+        // 处理音频流
+        const { audioStream } = options;
+
+        // 启动音频流处理
+        (async () => {
+            try {
+                // 如果是异步生成器
+                if (typeof audioStream === 'function' || audioStream[Symbol.asyncIterator]) {
+                    const stream = typeof audioStream === 'function' ? audioStream() : audioStream;
+
+                    for await (const audioChunk of stream) {
+                        if (!this.audioStreamQueue) {
+                            // 已停止
+                            break;
+                        }
+
+                        await this.audioStreamQueue.enqueue(audioChunk);
+
+                        if (options.onChunkReceived) {
+                            options.onChunkReceived(audioChunk);
+                        }
+                    }
+                }
+
+                // 标记流结束
+                if (this.audioStreamQueue) {
+                    this.audioStreamQueue.finalize();
+                }
+
+            } catch (error) {
+                console.error('Error processing audio stream:', error);
+                this.emit('error', error);
+                if (this.config.onError) {
+                    this.config.onError(error);
+                }
+            }
+        })();
+
+        // 返回控制对象
+        return {
+            stop: () => {
+                this.stopSpeaking();
+            },
+            isPlaying: () => {
+                return this.currentMode === 'speaking';
+            },
+            enqueueAudio: async (audioChunk) => {
+                if (this.audioStreamQueue) {
+                    await this.audioStreamQueue.enqueue(audioChunk);
+                }
+            }
+        };
     }
 
     /**
@@ -481,6 +643,19 @@ export class DigitalHuman extends EventEmitter {
         if (this.lipSyncEngine) {
             this.lipSyncEngine.destroy();
         }
+
+        // 清理流式音频资源
+        if (this.audioStreamQueue) {
+            this.audioStreamQueue.destroy();
+            this.audioStreamQueue = null;
+        }
+
+        if (this.streamAudioContext) {
+            this.streamAudioContext.close();
+            this.streamAudioContext = null;
+        }
+
+        this.streamAnalyser = null;
 
         this.isDestroyed = true;
         this.removeAllListeners();

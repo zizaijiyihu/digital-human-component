@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Digital Human - 基础示例</title>
+    <title>Digital Human - 数字人组件</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
@@ -21,7 +21,7 @@
         }
         #avatar {
             width: 800px;
-            height: 600px;  /* 4:3 比例测试 */
+            height: 600px;
             margin: 0 auto;
         }
         #controls {
@@ -30,7 +30,23 @@
             background: rgba(255,255,255,0.1);
             border-radius: 10px;
             backdrop-filter: blur(10px);
+        }
+        h2 {
+            color: white;
+            margin-bottom: 20px;
             text-align: center;
+        }
+        .control-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+        }
+        .section-title {
+            color: rgba(255,255,255,0.9);
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
         }
         button {
             padding: 12px 24px;
@@ -44,9 +60,21 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
         }
-        button:hover {
+        button:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        button.recording {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
         }
         input[type="text"] {
             padding: 10px 15px;
@@ -58,8 +86,26 @@
         }
         #status {
             margin-top: 15px;
+            padding: 10px;
             color: white;
             font-size: 14px;
+            text-align: center;
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+        }
+        /* 音量条样式 */
+        .volume-meter {
+            height: 20px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .volume-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #ffc107, #dc3545);
+            transition: width 0.1s;
+            width: 0%;
         }
     </style>
 </head>
@@ -68,16 +114,33 @@
         <div id="avatar"></div>
 
         <div id="controls">
-            <h2 style="color: white; margin-bottom: 20px;">数字人控制面板</h2>
+            <h2>🎭 数字人控制面板</h2>
 
-            <div style="margin: 15px 0;">
+            <!-- 基础控制 -->
+            <div class="control-section">
+                <div class="section-title">基础控制</div>
                 <button id="btnListen">👂 启动聆听模式</button>
-                <button id="btnStop">⏹ 停止</button>
+                <button id="btnStop">⏹ 停止所有</button>
             </div>
 
-            <div style="margin: 15px 0;">
+            <!-- 音频文件播放 -->
+            <div class="control-section">
+                <div class="section-title">音频文件播放</div>
                 <input type="text" id="audioPath" value="audio/kawa.wav" placeholder="音频文件路径">
                 <button id="btnSpeak">🗣️ 播放音频</button>
+            </div>
+
+            <!-- 🆕 麦克风实时驱动 -->
+            <div class="control-section">
+                <div class="section-title">🎤 麦克风实时驱动（新功能）</div>
+                <div class="volume-meter" id="volumeMeter">
+                    <div class="volume-bar" id="volumeBar"></div>
+                </div>
+                <button id="btnStartMic">🎤 开始录音驱动</button>
+                <button id="btnStopMic" disabled>⏹ 停止录音</button>
+                <div style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 8px;">
+                    💡 点击"开始录音驱动"后对着麦克风说话，数字人会实时同步你的嘴形
+                </div>
             </div>
 
             <div id="status">正在加载...</div>
@@ -98,73 +161,298 @@
     <script type="module">
         import { DigitalHuman } from '../src/index.js';
 
-        // 创建数字人实例（零配置！）
-        const avatar = new DigitalHuman({
-            container: '#avatar',
-            // 不设置 modelUrl，会使用默认模型
-            // 不设置 backgroundImage，会使用默认办公背景
-            // 不设置 animations，会使用默认动画
-            // 不设置 showLoading，默认显示内置加载动画
-            autoStart: 'listening',
-            debug: true,
+        // ===== 全局变量 =====
+        let avatar = null;
 
-            // 可选：自定义加载开始回调
+        // 麦克风相关
+        let mediaStream = null;
+        let audioContext = null;
+        let analyser = null;
+        let micSource = null;
+        let isRecording = false;
+
+        // ===== DOM 元素 =====
+        const btnListen = document.getElementById('btnListen');
+        const btnStop = document.getElementById('btnStop');
+        const btnSpeak = document.getElementById('btnSpeak');
+        const btnStartMic = document.getElementById('btnStartMic');
+        const btnStopMic = document.getElementById('btnStopMic');
+        const audioPath = document.getElementById('audioPath');
+        const statusEl = document.getElementById('status');
+        const volumeBar = document.getElementById('volumeBar');
+
+        // ===== 工具函数 =====
+
+        /**
+         * 更新状态显示
+         */
+        function updateStatus(text) {
+            statusEl.textContent = text;
+        }
+
+        /**
+         * 更新音量显示（仅在录音时）
+         */
+        function updateVolumeMeter() {
+            if (!analyser || !isRecording) return;
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+
+            // 计算平均音量
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+            }
+            const average = sum / dataArray.length;
+            const volume = (average / 255) * 100;
+
+            volumeBar.style.width = volume + '%';
+
+            if (isRecording) {
+                requestAnimationFrame(updateVolumeMeter);
+            }
+        }
+
+        /**
+         * 清理麦克风资源
+         */
+        function cleanupMicrophone() {
+            // 停止媒体流
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+
+            // 断开音频源
+            if (micSource) {
+                micSource.disconnect();
+                micSource = null;
+            }
+
+            // 注意：不关闭 audioContext，保持可用状态供后续使用
+            // audioContext 和 analyser 设置为 null，但不调用 close()
+            audioContext = null;
+            analyser = null;
+
+            // 重置状态
+            isRecording = false;
+            volumeBar.style.width = '0%';
+        }
+
+        // ===== 创建数字人实例 =====
+
+        avatar = new DigitalHuman({
+            container: '#avatar',
+            autoStart: 'listening',  // 自动启动聆听模式
+            debug: true,             // 开启调试日志
+
+            // 回调函数
             onLoadingStart: () => {
-                console.log('开始加载...');
+                console.log('开始加载数字人...');
             },
 
             onReady: () => {
-                document.getElementById('status').textContent = '✅ 加载完成！';
-                console.log('Digital Human is ready!');
+                updateStatus('✅ 加载完成，数字人已就绪！');
+                console.log('✅ Digital Human is ready!');
             },
 
-            onSpeakStart: () => {
-                document.getElementById('status').textContent = '🗣️ 正在说话...';
+            onSpeakStart: (data) => {
+                if (data?.streaming) {
+                    updateStatus('🗣️ 正在说话（流式模式）...');
+                } else {
+                    updateStatus('🗣️ 正在说话...');
+                }
             },
 
             onSpeakEnd: () => {
-                document.getElementById('status').textContent = '✅ 说话完成';
+                updateStatus('✅ 说话完成');
                 // 自动切换回聆听模式
-                setTimeout(() => avatar.startListening(), 500);
+                setTimeout(() => {
+                    if (!isRecording) {
+                        avatar.startListening();
+                    }
+                }, 500);
             },
 
             onListenStart: () => {
-                document.getElementById('status').textContent = '👂 聆听中...';
+                updateStatus('👂 聆听中...');
             },
 
             onError: (error) => {
-                document.getElementById('status').textContent = '❌ 错误: ' + error.message;
+                updateStatus('❌ 错误: ' + error.message);
                 console.error('Error:', error);
             }
         });
 
-        // 按钮事件
-        document.getElementById('btnListen').addEventListener('click', () => {
+        // ===== 基础控制事件 =====
+
+        /**
+         * 启动聆听模式
+         */
+        btnListen.addEventListener('click', () => {
+            // 如果正在录音，先停止
+            if (isRecording) {
+                btnStopMic.click();
+            }
             avatar.startListening();
         });
 
-        document.getElementById('btnStop').addEventListener('click', () => {
+        /**
+         * 停止所有模式
+         */
+        btnStop.addEventListener('click', () => {
+            // 停止录音（如果正在录音）
+            if (isRecording) {
+                btnStopMic.click();
+            }
+
             avatar.stopListening();
             avatar.stopSpeaking();
-            document.getElementById('status').textContent = '⏹ 已停止';
+            updateStatus('⏹ 已停止');
         });
 
-        document.getElementById('btnSpeak').addEventListener('click', async () => {
-            const audioPath = document.getElementById('audioPath').value.trim();
-            if (!audioPath) {
+        // ===== 音频文件播放 =====
+
+        /**
+         * 播放音频文件
+         */
+        btnSpeak.addEventListener('click', async () => {
+            const path = audioPath.value.trim();
+            if (!path) {
                 alert('请输入音频文件路径');
                 return;
             }
 
+            // 如果正在录音，先停止
+            if (isRecording) {
+                btnStopMic.click();
+            }
+
             try {
-                await avatar.speak(audioPath);
+                updateStatus('🔄 正在加载音频...');
+                await avatar.speak(path);
             } catch (error) {
                 alert('播放失败: ' + error.message);
+                console.error('播放失败:', error);
             }
         });
 
-        // 暴露到全局，方便调试
+        // ===== 🆕 麦克风实时驱动功能 =====
+
+        /**
+         * 开始麦克风录音驱动
+         */
+        btnStartMic.addEventListener('click', async () => {
+            try {
+                btnStartMic.disabled = true;
+                updateStatus('🔄 正在请求麦克风权限...');
+
+                // 请求麦克风权限
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,   // 回音消除
+                        noiseSuppression: true,   // 降噪
+                        autoGainControl: true     // 自动增益控制
+                    }
+                });
+
+                console.log('✅ 麦克风权限已获取');
+
+                // 创建音频上下文和分析器
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+
+                // 连接麦克风到分析器
+                micSource = audioContext.createMediaStreamSource(mediaStream);
+                micSource.connect(analyser);
+                // 注意：不连接到 destination，避免回音
+
+                // 停止当前模式
+                avatar.stopListening();
+                avatar.stopSpeaking();
+
+                // 切换到说话模式（播放 talking 动画）
+                avatar.animationController.play('talking');
+                avatar.expressionManager.startSpeakingMode();
+                avatar.currentMode = 'speaking';
+
+                // 启动实时唇形同步
+                avatar.lipSyncEngine.startStreaming(analyser, audioContext);
+
+                // 更新状态
+                isRecording = true;
+                btnStopMic.disabled = false;
+                btnStartMic.classList.add('recording');
+
+                updateStatus('🎤 正在录音，对着麦克风说话试试！');
+                console.log('✅ 麦克风驱动已启动');
+
+                // 开始更新音量显示
+                updateVolumeMeter();
+
+            } catch (error) {
+                console.error('麦克风访问失败:', error);
+                updateStatus('❌ 麦克风访问失败: ' + error.message);
+                btnStartMic.disabled = false;
+
+                // 特殊处理权限拒绝
+                if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                    alert('麦克风权限被拒绝。请在浏览器设置中允许访问麦克风，然后刷新页面重试。');
+                } else if (error.name === 'NotFoundError') {
+                    alert('未检测到麦克风设备，请检查你的麦克风是否已连接。');
+                } else {
+                    alert('无法访问麦克风: ' + error.message);
+                }
+            }
+        });
+
+        /**
+         * 停止麦克风录音驱动
+         */
+        btnStopMic.addEventListener('click', () => {
+            // 清理麦克风资源
+            cleanupMicrophone();
+
+            // 停止唇形同步
+            if (avatar.lipSyncEngine) {
+                avatar.lipSyncEngine.stop();
+            }
+
+            // 停止说话模式
+            avatar.animationController.stop('talking');
+            avatar.expressionManager.stopSpeakingMode();
+            avatar.currentMode = null;
+
+            // 更新 UI
+            btnStopMic.disabled = true;
+            btnStartMic.disabled = false;
+            btnStartMic.classList.remove('recording');
+
+            updateStatus('⏹ 录音已停止');
+            console.log('⏹ 麦克风驱动已停止');
+        });
+
+        // ===== 页面卸载时清理资源 =====
+
+        window.addEventListener('beforeunload', () => {
+            if (isRecording) {
+                cleanupMicrophone();
+            }
+            if (avatar) {
+                avatar.destroy();
+            }
+        });
+
+        // ===== 暴露到全局，方便调试 =====
+
         window.avatar = avatar;
+        window.debugInfo = {
+            isRecording: () => isRecording,
+            hasMediaStream: () => !!mediaStream,
+            hasAudioContext: () => !!audioContext
+        };
     </script>
 </body>
 </html>

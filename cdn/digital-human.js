@@ -2292,9 +2292,11 @@
                     if (this.isRecording) {
                         // 正在录制，保存到录制缓冲区
                         this.recordingChunks.push(event.data);
+                        console.log(`[Recording] Added chunk ${this.recordingChunks.length}, size: ${event.data.size} bytes`);
                     } else if (this.circularBuffer) {
                         // 循环缓冲区模式（检查缓冲区是否存在）
                         this.circularBuffer.add(event.data, timestamp);
+                        console.log(`[Buffer] Added chunk, buffer size: ${this.circularBuffer.getChunkCount()}, duration: ${this.circularBuffer.getDuration()}ms`);
                     }
                 }
             };
@@ -2410,6 +2412,31 @@
                 recordingDuration: this.isRecording ? Date.now() - this.recordingStartTime : 0,
                 recordingChunks: this.recordingChunks.length
             };
+        }
+
+        /**
+         * 获取当前缓冲区的视频（最近5秒）
+         * @returns {Object|null} { blob: Blob, metadata: Object } 或 null
+         */
+        getCurrentBufferVideo() {
+            if (!this.circularBuffer || this.circularBuffer.getChunkCount() === 0) {
+                return null;
+            }
+
+            const chunks = this.circularBuffer.getAll();
+            const videoBlob = new Blob(chunks, { type: this.config.videoFormat });
+
+            const metadata = {
+                duration: this.circularBuffer.getDuration(),
+                size: videoBlob.size,
+                chunkCount: chunks.length,
+                format: this.config.videoFormat,
+                type: 'buffer' // 标记这是缓冲区视频
+            };
+
+            console.log(`📹 Current buffer video: ${chunks.length} chunks, ${metadata.duration}ms, ${(videoBlob.size / 1024 / 1024).toFixed(2)} MB`);
+
+            return { blob: videoBlob, metadata };
         }
 
         /**
@@ -4089,6 +4116,18 @@
             }
 
             return this.videoAutoCaptureManager.getStatus();
+        }
+
+        /**
+         * 获取当前缓冲区视频（最近5秒）
+         * @returns {Object|null} { blob: Blob, metadata: Object } 或 null
+         */
+        getCurrentBufferVideo() {
+            if (!this.videoAutoCaptureManager) {
+                return null;
+            }
+
+            return this.videoAutoCaptureManager.getCurrentBufferVideo();
         }
     }
 

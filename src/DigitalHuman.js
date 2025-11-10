@@ -1667,4 +1667,16 @@ export class DigitalHuman extends EventEmitter {
 
         return this.videoAutoCaptureManager.getStatus();
     }
+
+    /**
+     * 获取当前缓冲区视频（最近5秒）
+     * @returns {Object|null} { blob: Blob, metadata: Object } 或 null
+     */
+    getCurrentBufferVideo() {
+        if (!this.videoAutoCaptureManager) {
+            return null;
+        }
+
+        return this.videoAutoCaptureManager.getCurrentBufferVideo();
+    }
 }

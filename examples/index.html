@@ -563,10 +563,11 @@
                 // 更新 UI
                 btnEnableCapture.disabled = true;
                 btnDisableCapture.disabled = false;
+                btnDownloadVideo.disabled = false; // 启动采集后立即启用下载按钮
                 captureStatus.textContent = '⏸️ 待机中（循环缓冲）';
                 captureStatus.style.color = '#44ff44';
 
-                updateStatus('✅ 视频自动采集已启动');
+                updateStatus('✅ 视频自动采集已启动，可随时下载视频');
                 console.log('✅ 视频自动采集已启动');
 
             } catch (error) {
@@ -585,6 +586,7 @@
             // 更新 UI
             btnEnableCapture.disabled = false;
             btnDisableCapture.disabled = true;
+            btnDownloadVideo.disabled = true; // 停止采集后禁用下载按钮
             captureStatus.textContent = '未启动';
             captureStatus.style.color = 'rgba(255,255,255,0.7)';
 
@@ -593,28 +595,48 @@
         });
 
         /**
-         * 下载最后一个采集的视频
+         * 下载视频（智能选择：完整录制 > 循环缓冲区）
          */
         btnDownloadVideo.addEventListener('click', () => {
-            if (!lastCapturedVideo) {
-                alert('没有可下载的视频');
+            let videoData = null;
+            let videoType = '';
+
+            // 优先下载完整录制的视频
+            if (lastCapturedVideo) {
+                videoData = lastCapturedVideo;
+                videoType = '完整录制';
+                console.log('📹 下载完整录制视频');
+            } else {
+                // 没有完整录制，下载当前缓冲区
+                videoData = avatar.getCurrentBufferVideo();
+                videoType = '循环缓冲区';
+                console.log('📹 下载循环缓冲区视频');
+            }
+
+            if (!videoData) {
+                alert('没有可下载的视频，请等待缓冲区积累数据');
                 return;
             }
 
-            const { blob, metadata } = lastCapturedVideo;
+            const { blob, metadata } = videoData;
 
             // 创建下载链接
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `captured-video-${metadata.startTime}.webm`;
+
+            // 根据类型命名文件
+            const timestamp = metadata.startTime || Date.now();
+            const typeLabel = metadata.type === 'buffer' ? 'buffer' : 'recording';
+            a.download = `captured-${typeLabel}-${timestamp}.webm`;
+
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            console.log('💾 视频已下载');
-            updateStatus('💾 视频已下载');
+            console.log(`💾 ${videoType}视频已下载: ${(metadata.duration / 1000).toFixed(1)}秒, ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
+            updateStatus(`💾 ${videoType}视频已下载: ${(metadata.duration / 1000).toFixed(1)}秒`);
         });
 
         // 监听进入视频通话模式事件，启用采集按钮
@@ -626,6 +648,7 @@
         avatar.on('videoCallExit', () => {
             btnEnableCapture.disabled = true;
             btnDisableCapture.disabled = true;
+            btnDownloadVideo.disabled = true;
             captureStatus.textContent = '未启动';
             captureStatus.style.color = 'rgba(255,255,255,0.7)';
         });

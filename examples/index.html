@@ -145,12 +145,24 @@
 
             <!-- 🆕 视频通话模式 -->
             <div class="control-section">
-                <div class="section-title">📹 视频通话模式（新功能）</div>
+                <div class="section-title">📹 视频通话模式</div>
                 <button id="btnEnterVideoCall">📹 进入视频通话</button>
                 <button id="btnExitVideoCall" disabled>❌ 退出视频通话</button>
                 <div style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 8px;">
                     💡 进入后，数字人缩小到右下角，主窗口显示摄像头画面<br>
                     🖱️ 点击小窗口可切换大小窗口，支持音频可视化特效
+                </div>
+            </div>
+
+            <!-- 🆕 视频自动采集 -->
+            <div class="control-section">
+                <div class="section-title">🎬 视频自动采集（新功能）</div>
+                <button id="btnEnableCapture" disabled>📹 启动视频采集</button>
+                <button id="btnDisableCapture" disabled>⏹ 停止视频采集</button>
+                <button id="btnDownloadVideo" disabled>💾 下载最后一个视频</button>
+                <div style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 8px;">
+                    💡 自动采集【最近5秒+说话期间】的视频，需先进入视频通话模式<br>
+                    📊 采集状态：<span id="captureStatus">未启动</span>
                 </div>
             </div>
 
@@ -488,9 +500,134 @@
             // 更新 UI
             btnEnterVideoCall.disabled = false;
             btnExitVideoCall.disabled = true;
+            btnEnableCapture.disabled = true;
+            btnDisableCapture.disabled = true;
 
             updateStatus('❌ 视频通话模式已退出');
             console.log('⏹ 视频通话模式已退出');
+        });
+
+        // ===== 视频自动采集功能 =====
+
+        const btnEnableCapture = document.getElementById('btnEnableCapture');
+        const btnDisableCapture = document.getElementById('btnDisableCapture');
+        const btnDownloadVideo = document.getElementById('btnDownloadVideo');
+        const captureStatus = document.getElementById('captureStatus');
+
+        let lastCapturedVideo = null; // 保存最后一个采集的视频
+
+        /**
+         * 启动视频自动采集
+         */
+        btnEnableCapture.addEventListener('click', async () => {
+            try {
+                await avatar.enableVideoAutoCapture({
+                    bufferDuration: 5000,          // 5秒缓冲
+                    speechThreshold: 40,           // 阈值 40
+                    silenceDuration: 2000,         // 静音 2 秒后结束
+                    minSpeakDuration: 500,         // 最小说话时长 500ms
+                    maxRecordDuration: 300000,     // 最大录制 5 分钟
+
+                    onVideoCapture: (videoBlob, metadata) => {
+                        console.log('📹 捕获到视频:', metadata);
+                        lastCapturedVideo = {
+                            blob: videoBlob,
+                            metadata: metadata
+                        };
+
+                        // 启用下载按钮
+                        btnDownloadVideo.disabled = false;
+
+                        // 更新状态
+                        updateStatus(`✅ 捕获到 ${(metadata.duration / 1000).toFixed(1)}秒 的视频 (${(videoBlob.size / 1024 / 1024).toFixed(2)} MB)`);
+                    },
+
+                    onSpeakingStart: () => {
+                        console.log('🗣️ 检测到说话开始');
+                        captureStatus.textContent = '🔴 正在录制...';
+                        captureStatus.style.color = '#ff4444';
+                    },
+
+                    onSpeakingEnd: () => {
+                        console.log('🔇 检测到说话结束');
+                        captureStatus.textContent = '⏸️ 待机中（循环缓冲）';
+                        captureStatus.style.color = '#44ff44';
+                    },
+
+                    onError: (error) => {
+                        console.error('视频采集错误:', error);
+                        updateStatus('❌ 视频采集错误: ' + error.message);
+                    }
+                });
+
+                // 更新 UI
+                btnEnableCapture.disabled = true;
+                btnDisableCapture.disabled = false;
+                captureStatus.textContent = '⏸️ 待机中（循环缓冲）';
+                captureStatus.style.color = '#44ff44';
+
+                updateStatus('✅ 视频自动采集已启动');
+                console.log('✅ 视频自动采集已启动');
+
+            } catch (error) {
+                console.error('启动视频采集失败:', error);
+                updateStatus('❌ 启动视频采集失败: ' + error.message);
+                alert('启动失败: ' + error.message);
+            }
+        });
+
+        /**
+         * 停止视频自动采集
+         */
+        btnDisableCapture.addEventListener('click', () => {
+            avatar.disableVideoAutoCapture();
+
+            // 更新 UI
+            btnEnableCapture.disabled = false;
+            btnDisableCapture.disabled = true;
+            captureStatus.textContent = '未启动';
+            captureStatus.style.color = 'rgba(255,255,255,0.7)';
+
+            updateStatus('⏹ 视频自动采集已停止');
+            console.log('⏹ 视频自动采集已停止');
+        });
+
+        /**
+         * 下载最后一个采集的视频
+         */
+        btnDownloadVideo.addEventListener('click', () => {
+            if (!lastCapturedVideo) {
+                alert('没有可下载的视频');
+                return;
+            }
+
+            const { blob, metadata } = lastCapturedVideo;
+
+            // 创建下载链接
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `captured-video-${metadata.startTime}.webm`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            console.log('💾 视频已下载');
+            updateStatus('💾 视频已下载');
+        });
+
+        // 监听进入视频通话模式事件，启用采集按钮
+        avatar.on('videoCallEnter', () => {
+            btnEnableCapture.disabled = false;
+        });
+
+        // 监听退出视频通话模式事件，禁用采集按钮
+        avatar.on('videoCallExit', () => {
+            btnEnableCapture.disabled = true;
+            btnDisableCapture.disabled = true;
+            captureStatus.textContent = '未启动';
+            captureStatus.style.color = 'rgba(255,255,255,0.7)';
         });
 
         // ===== 页面卸载时清理资源 =====

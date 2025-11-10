@@ -1817,6 +1817,623 @@
     }
 
     /**
+     * 说话检测器
+     * 基于音频能量分析检测用户是否在说话
+     */
+    class SpeechDetector {
+        constructor(analyser, options = {}) {
+            this.analyser = analyser;
+
+            // 配置参数
+            this.threshold = options.threshold || 40;                    // 能量阈值（默认 40）
+            this.silenceDuration = options.silenceDuration || 2000;      // 静音持续时间（默认 2000ms）
+            this.minSpeakDuration = options.minSpeakDuration || 500;     // 最小说话时长（默认 500ms）
+
+            // 状态
+            this.isSpeaking = false;
+            this.lastSpeechTime = 0;
+            this.speechStartTime = 0;
+            this.silenceStartTime = 0;
+
+            // 回调函数
+            this.onSpeakingStart = null;
+            this.onSpeakingEnd = null;
+
+            // 检测循环
+            this.detectionInterval = null;
+            this.isRunning = false;
+
+            // 数据缓冲
+            this.dataArray = new Uint8Array(analyser.frequencyBinCount);
+        }
+
+        /**
+         * 启动说话检测
+         * @param {number} interval - 检测间隔（毫秒）
+         */
+        start(interval = 100) {
+            if (this.isRunning) {
+                return;
+            }
+
+            this.isRunning = true;
+            this.isSpeaking = false;
+            this.lastSpeechTime = 0;
+            this.speechStartTime = 0;
+            this.silenceStartTime = 0;
+
+            this.detectionInterval = setInterval(() => {
+                this._detect();
+            }, interval);
+
+            console.log('✅ SpeechDetector started');
+        }
+
+        /**
+         * 停止说话检测
+         */
+        stop() {
+            if (!this.isRunning) {
+                return;
+            }
+
+            this.isRunning = false;
+
+            if (this.detectionInterval) {
+                clearInterval(this.detectionInterval);
+                this.detectionInterval = null;
+            }
+
+            // 如果正在说话，触发结束事件
+            if (this.isSpeaking && this.onSpeakingEnd) {
+                this.onSpeakingEnd();
+            }
+
+            this.isSpeaking = false;
+
+            console.log('⏹ SpeechDetector stopped');
+        }
+
+        /**
+         * 执行检测
+         * @private
+         */
+        _detect() {
+            const now = Date.now();
+            const energy = this._getAudioEnergy();
+            const isCurrentlySpeaking = energy > this.threshold;
+
+            if (isCurrentlySpeaking) {
+                // 检测到声音
+                this.lastSpeechTime = now;
+
+                if (!this.isSpeaking) {
+                    // 从静音到说话
+                    if (this.speechStartTime === 0) {
+                        this.speechStartTime = now;
+                    }
+
+                    // 持续说话超过最小时长，触发开始事件
+                    const speakDuration = now - this.speechStartTime;
+                    if (speakDuration >= this.minSpeakDuration) {
+                        this.isSpeaking = true;
+                        this.silenceStartTime = 0;
+
+                        if (this.onSpeakingStart) {
+                            this.onSpeakingStart();
+                        }
+                    }
+                }
+            } else {
+                // 检测到静音
+                if (this.isSpeaking) {
+                    // 从说话到静音
+                    if (this.silenceStartTime === 0) {
+                        this.silenceStartTime = now;
+                    }
+
+                    // 持续静音超过阈值，触发结束事件
+                    const silenceDuration = now - this.silenceStartTime;
+                    if (silenceDuration >= this.silenceDuration) {
+                        this.isSpeaking = false;
+                        this.speechStartTime = 0;
+                        this.silenceStartTime = 0;
+
+                        if (this.onSpeakingEnd) {
+                            this.onSpeakingEnd();
+                        }
+                    }
+                } else {
+                    // 持续静音，重置说话开始时间
+                    this.speechStartTime = 0;
+                }
+            }
+        }
+
+        /**
+         * 获取音频能量
+         * @private
+         * @returns {number} 平均音频能量 (0-255)
+         */
+        _getAudioEnergy() {
+            this.analyser.getByteFrequencyData(this.dataArray);
+
+            // 计算平均能量
+            let sum = 0;
+            for (let i = 0; i < this.dataArray.length; i++) {
+                sum += this.dataArray[i];
+            }
+
+            return sum / this.dataArray.length;
+        }
+
+        /**
+         * 获取当前是否在说话
+         * @returns {boolean}
+         */
+        getSpeakingState() {
+            return this.isSpeaking;
+        }
+
+        /**
+         * 设置阈值
+         * @param {number} threshold - 新的能量阈值
+         */
+        setThreshold(threshold) {
+            this.threshold = threshold;
+        }
+
+        /**
+         * 销毁检测器
+         */
+        destroy() {
+            this.stop();
+            this.onSpeakingStart = null;
+            this.onSpeakingEnd = null;
+            this.dataArray = null;
+        }
+    }
+
+    /**
+     * 循环视频缓冲区
+     * 维护最近 N 秒的视频片段
+     */
+    class CircularVideoBuffer {
+        constructor(duration = 5000) {
+            this.maxDuration = duration; // 最大缓冲时长（毫秒）
+            this.chunks = [];            // 视频数据块
+            this.timestamps = [];        // 对应的时间戳
+            this.startTime = null;       // 缓冲区开始时间
+        }
+
+        /**
+         * 添加视频片段
+         * @param {Blob} chunk - 视频数据块
+         * @param {number} timestamp - 时间戳（毫秒）
+         */
+        add(chunk, timestamp) {
+            if (this.startTime === null) {
+                this.startTime = timestamp;
+            }
+
+            this.chunks.push(chunk);
+            this.timestamps.push(timestamp);
+
+            // 移除超过最大时长的旧片段
+            this._pruneOldChunks(timestamp);
+        }
+
+        /**
+         * 清理超过最大时长的旧片段
+         * @private
+         * @param {number} currentTime - 当前时间戳
+         */
+        _pruneOldChunks(currentTime) {
+            const cutoffTime = currentTime - this.maxDuration;
+
+            while (this.timestamps.length > 0 && this.timestamps[0] < cutoffTime) {
+                this.chunks.shift();
+                this.timestamps.shift();
+            }
+
+            // 更新开始时间
+            if (this.timestamps.length > 0) {
+                this.startTime = this.timestamps[0];
+            }
+        }
+
+        /**
+         * 获取所有缓冲的视频片段
+         * @returns {Blob[]} 视频数据块数组
+         */
+        getAll() {
+            return [...this.chunks];
+        }
+
+        /**
+         * 获取缓冲区的时长（毫秒）
+         * @returns {number}
+         */
+        getDuration() {
+            if (this.timestamps.length === 0) {
+                return 0;
+            }
+
+            return this.timestamps[this.timestamps.length - 1] - this.timestamps[0];
+        }
+
+        /**
+         * 获取缓冲区的片段数量
+         * @returns {number}
+         */
+        getChunkCount() {
+            return this.chunks.length;
+        }
+
+        /**
+         * 清空缓冲区
+         */
+        clear() {
+            this.chunks = [];
+            this.timestamps = [];
+            this.startTime = null;
+        }
+
+        /**
+         * 获取缓冲区总大小（字节）
+         * @returns {number}
+         */
+        getTotalSize() {
+            return this.chunks.reduce((total, chunk) => total + chunk.size, 0);
+        }
+
+        /**
+         * 检查缓冲区是否为空
+         * @returns {boolean}
+         */
+        isEmpty() {
+            return this.chunks.length === 0;
+        }
+    }
+
+    /**
+     * 视频自动采集管理器
+     * 自动采集【最近5秒 + 检测到说话期间】的视频
+     */
+    class VideoAutoCaptureManager {
+        constructor(mediaStream, options = {}) {
+            this.mediaStream = mediaStream;
+
+            // 配置参数
+            this.config = {
+                bufferDuration: options.bufferDuration || 5000,           // 缓冲区时长（默认 5000ms）
+                speechThreshold: options.speechThreshold || 40,           // 说话检测阈值（默认 40）
+                silenceDuration: options.silenceDuration || 2000,         // 静音持续时间（默认 2000ms）
+                minSpeakDuration: options.minSpeakDuration || 500,        // 最小说话时长（默认 500ms）
+                maxRecordDuration: options.maxRecordDuration || 300000,   // 最大录制时长（默认 5 分钟）
+                videoFormat: options.videoFormat || 'video/webm',         // 视频格式（默认 webm）
+                videoBitsPerSecond: options.videoBitsPerSecond || 2500000 // 视频比特率（默认 2.5 Mbps）
+            };
+
+            // 回调函数
+            this.onVideoCapture = options.onVideoCapture || null;
+            this.onSpeakingStart = options.onSpeakingStart || null;
+            this.onSpeakingEnd = options.onSpeakingEnd || null;
+            this.onError = options.onError || null;
+
+            // 状态
+            this.isRunning = false;
+            this.isRecording = false;
+
+            // 模块
+            this.mediaRecorder = null;
+            this.circularBuffer = null;
+            this.speechDetector = null;
+            this.audioContext = null;
+            this.audioAnalyser = null;
+
+            // 录制数据
+            this.recordingChunks = [];
+            this.recordingStartTime = null;
+            this.recordingTimeout = null;
+        }
+
+        /**
+         * 启动视频自动采集
+         */
+        async start() {
+            if (this.isRunning) {
+                console.warn('VideoAutoCaptureManager already running');
+                return;
+            }
+
+            try {
+                // 1. 初始化循环缓冲区
+                this.circularBuffer = new CircularVideoBuffer(this.config.bufferDuration);
+
+                // 2. 初始化音频分析器
+                this._initAudioAnalyser();
+
+                // 3. 初始化说话检测器
+                this._initSpeechDetector();
+
+                // 4. 初始化 MediaRecorder
+                this._initMediaRecorder();
+
+                // 5. 启动录制和检测
+                this.mediaRecorder.start(100); // 每 100ms 产生一个数据块
+                this.speechDetector.start(100); // 每 100ms 检测一次
+
+                this.isRunning = true;
+
+                console.log('✅ VideoAutoCaptureManager started');
+
+            } catch (error) {
+                console.error('Failed to start VideoAutoCaptureManager:', error);
+                if (this.onError) {
+                    this.onError(error);
+                }
+                throw error;
+            }
+        }
+
+        /**
+         * 停止视频自动采集
+         */
+        stop() {
+            if (!this.isRunning) {
+                return;
+            }
+
+            // 停止说话检测
+            if (this.speechDetector) {
+                this.speechDetector.stop();
+            }
+
+            // 停止 MediaRecorder
+            if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+                this.mediaRecorder.stop();
+            }
+
+            // 清理录制超时
+            if (this.recordingTimeout) {
+                clearTimeout(this.recordingTimeout);
+                this.recordingTimeout = null;
+            }
+
+            // 清空缓冲区
+            if (this.circularBuffer) {
+                this.circularBuffer.clear();
+            }
+
+            // 关闭音频上下文
+            if (this.audioContext && this.audioContext.state !== 'closed') {
+                this.audioContext.close();
+            }
+
+            this.isRunning = false;
+            this.isRecording = false;
+
+            console.log('⏹ VideoAutoCaptureManager stopped');
+        }
+
+        /**
+         * 初始化音频分析器
+         * @private
+         */
+        _initAudioAnalyser() {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.audioAnalyser = this.audioContext.createAnalyser();
+            this.audioAnalyser.fftSize = 2048;
+            this.audioAnalyser.smoothingTimeConstant = 0.8;
+
+            const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+            source.connect(this.audioAnalyser);
+        }
+
+        /**
+         * 初始化说话检测器
+         * @private
+         */
+        _initSpeechDetector() {
+            this.speechDetector = new SpeechDetector(this.audioAnalyser, {
+                threshold: this.config.speechThreshold,
+                silenceDuration: this.config.silenceDuration,
+                minSpeakDuration: this.config.minSpeakDuration
+            });
+
+            // 说话开始事件
+            this.speechDetector.onSpeakingStart = () => {
+                this._handleSpeakingStart();
+            };
+
+            // 说话结束事件
+            this.speechDetector.onSpeakingEnd = () => {
+                this._handleSpeakingEnd();
+            };
+        }
+
+        /**
+         * 初始化 MediaRecorder
+         * @private
+         */
+        _initMediaRecorder() {
+            // 检查 MIME 类型支持
+            let mimeType = this.config.videoFormat;
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                console.warn(`${mimeType} not supported, trying fallback formats`);
+
+                // 尝试备选格式
+                const fallbacks = [
+                    'video/webm;codecs=vp9,opus',
+                    'video/webm;codecs=vp8,opus',
+                    'video/webm'
+                ];
+
+                for (const format of fallbacks) {
+                    if (MediaRecorder.isTypeSupported(format)) {
+                        mimeType = format;
+                        console.log(`Using fallback format: ${format}`);
+                        break;
+                    }
+                }
+            }
+
+            this.mediaRecorder = new MediaRecorder(this.mediaStream, {
+                mimeType: mimeType,
+                videoBitsPerSecond: this.config.videoBitsPerSecond
+            });
+
+            // 数据可用事件
+            this.mediaRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    const timestamp = Date.now();
+
+                    if (this.isRecording) {
+                        // 正在录制，保存到录制缓冲区
+                        this.recordingChunks.push(event.data);
+                    } else {
+                        // 循环缓冲区模式
+                        this.circularBuffer.add(event.data, timestamp);
+                    }
+                }
+            };
+
+            // 停止事件
+            this.mediaRecorder.onstop = () => {
+                console.log('MediaRecorder stopped');
+            };
+
+            // 错误事件
+            this.mediaRecorder.onerror = (event) => {
+                console.error('MediaRecorder error:', event);
+                if (this.onError) {
+                    this.onError(event.error);
+                }
+            };
+        }
+
+        /**
+         * 处理说话开始
+         * @private
+         */
+        _handleSpeakingStart() {
+            console.log('🗣️ Speaking started');
+
+            // 触发用户回调
+            if (this.onSpeakingStart) {
+                this.onSpeakingStart();
+            }
+
+            // 开始录制
+            this.isRecording = true;
+            this.recordingStartTime = Date.now();
+            this.recordingChunks = [];
+
+            // 将循环缓冲区的内容添加到录制缓冲区
+            const bufferedChunks = this.circularBuffer.getAll();
+            this.recordingChunks.push(...bufferedChunks);
+
+            console.log(`📹 Recording started with ${bufferedChunks.length} buffered chunks (${this.circularBuffer.getDuration()}ms)`);
+
+            // 设置最大录制时长限制
+            this.recordingTimeout = setTimeout(() => {
+                console.warn('⚠️ Max recording duration reached, forcing stop');
+                this._handleSpeakingEnd();
+            }, this.config.maxRecordDuration);
+        }
+
+        /**
+         * 处理说话结束
+         * @private
+         */
+        _handleSpeakingEnd() {
+            if (!this.isRecording) {
+                return;
+            }
+
+            console.log('🔇 Speaking ended');
+
+            // 触发用户回调
+            if (this.onSpeakingEnd) {
+                this.onSpeakingEnd();
+            }
+
+            // 清理录制超时
+            if (this.recordingTimeout) {
+                clearTimeout(this.recordingTimeout);
+                this.recordingTimeout = null;
+            }
+
+            // 停止录制
+            this.isRecording = false;
+
+            // 计算录制时长
+            const duration = Date.now() - this.recordingStartTime;
+
+            // 合并视频片段
+            const videoBlob = new Blob(this.recordingChunks, { type: this.config.videoFormat });
+
+            console.log(`📹 Recording finished: ${this.recordingChunks.length} chunks, ${duration}ms, ${(videoBlob.size / 1024 / 1024).toFixed(2)} MB`);
+
+            // 生成元数据
+            const metadata = {
+                duration: duration,
+                startTime: this.recordingStartTime,
+                endTime: Date.now(),
+                size: videoBlob.size,
+                chunkCount: this.recordingChunks.length,
+                format: this.config.videoFormat
+            };
+
+            // 触发视频捕获回调
+            if (this.onVideoCapture) {
+                this.onVideoCapture(videoBlob, metadata);
+            }
+
+            // 清空录制缓冲区
+            this.recordingChunks = [];
+            this.recordingStartTime = null;
+        }
+
+        /**
+         * 获取当前状态
+         * @returns {Object}
+         */
+        getStatus() {
+            return {
+                isRunning: this.isRunning,
+                isRecording: this.isRecording,
+                bufferDuration: this.circularBuffer ? this.circularBuffer.getDuration() : 0,
+                bufferChunks: this.circularBuffer ? this.circularBuffer.getChunkCount() : 0,
+                bufferSize: this.circularBuffer ? this.circularBuffer.getTotalSize() : 0,
+                recordingDuration: this.isRecording ? Date.now() - this.recordingStartTime : 0,
+                recordingChunks: this.recordingChunks.length
+            };
+        }
+
+        /**
+         * 销毁管理器
+         */
+        destroy() {
+            this.stop();
+
+            this.circularBuffer = null;
+            this.speechDetector = null;
+            this.mediaRecorder = null;
+            this.audioAnalyser = null;
+            this.audioContext = null;
+
+            this.onVideoCapture = null;
+            this.onSpeakingStart = null;
+            this.onSpeakingEnd = null;
+            this.onError = null;
+
+            console.log('🗑️ VideoAutoCaptureManager destroyed');
+        }
+    }
+
+    /**
      * 数字人组件
      */
     class DigitalHuman extends EventEmitter {
@@ -1921,6 +2538,10 @@
             this.cameraPipMouseEnterHandler = null;
             this.cameraPipMouseLeaveHandler = null;
             this.cameraPipClickHandler = null;
+
+            // 视频自动采集相关
+            this.videoAutoCaptureManager = null;
+            this.isVideoAutoCaptureEnabled = false;
 
             // 资源引用
             this.avatar = null;
@@ -2584,6 +3205,11 @@
         exitVideoCallMode() {
             if (!this.isVideoCallMode) {
                 return;
+            }
+
+            // 停止视频自动采集（如果已启动）
+            if (this.isVideoAutoCaptureEnabled) {
+                this.disableVideoAutoCapture();
             }
 
             // 停止音频可视化
@@ -3363,6 +3989,106 @@
             };
 
             draw();
+        }
+
+        /**
+         * 启动视频自动采集
+         * @param {Object} options - 配置选项
+         * @param {Function} options.onVideoCapture - 视频捕获回调 (videoBlob, metadata) => {}
+         * @param {number} [options.bufferDuration=5000] - 缓冲区时长（毫秒）
+         * @param {number} [options.speechThreshold=40] - 说话检测阈值
+         * @param {number} [options.silenceDuration=2000] - 静音持续时间（毫秒）
+         * @param {number} [options.minSpeakDuration=500] - 最小说话时长（毫秒）
+         * @param {number} [options.maxRecordDuration=300000] - 最大录制时长（毫秒，默认 5 分钟）
+         * @param {string} [options.videoFormat='video/webm'] - 视频格式
+         * @param {number} [options.videoBitsPerSecond=2500000] - 视频比特率
+         * @param {Function} [options.onSpeakingStart] - 说话开始回调
+         * @param {Function} [options.onSpeakingEnd] - 说话结束回调
+         * @param {Function} [options.onError] - 错误回调
+         */
+        async enableVideoAutoCapture(options = {}) {
+            // 必须在视频通话模式下才能使用
+            if (!this.isVideoCallMode) {
+                const error = new Error('Video auto capture is only available in video call mode');
+                console.error(error.message);
+                if (options.onError) {
+                    options.onError(error);
+                }
+                throw error;
+            }
+
+            // 已经启动
+            if (this.isVideoAutoCaptureEnabled) {
+                console.warn('Video auto capture already enabled');
+                return;
+            }
+
+            // 验证必选参数
+            if (!options.onVideoCapture || typeof options.onVideoCapture !== 'function') {
+                throw new Error('onVideoCapture callback is required');
+            }
+
+            try {
+                // 创建视频自动采集管理器
+                this.videoAutoCaptureManager = new VideoAutoCaptureManager(this.localMediaStream, options);
+
+                // 启动采集
+                await this.videoAutoCaptureManager.start();
+
+                this.isVideoAutoCaptureEnabled = true;
+
+                // 触发事件
+                this.emit('videoAutoCaptureEnabled');
+
+                if (this.config.debug) {
+                    console.log('📹 Video auto capture enabled');
+                }
+
+            } catch (error) {
+                console.error('Failed to enable video auto capture:', error);
+                this.emit('videoAutoCaptureError', { error });
+                if (options.onError) {
+                    options.onError(error);
+                }
+                throw error;
+            }
+        }
+
+        /**
+         * 停止视频自动采集
+         */
+        disableVideoAutoCapture() {
+            if (!this.isVideoAutoCaptureEnabled) {
+                console.warn('Video auto capture is not enabled');
+                return;
+            }
+
+            // 停止采集
+            if (this.videoAutoCaptureManager) {
+                this.videoAutoCaptureManager.destroy();
+                this.videoAutoCaptureManager = null;
+            }
+
+            this.isVideoAutoCaptureEnabled = false;
+
+            // 触发事件
+            this.emit('videoAutoCaptureDisabled');
+
+            if (this.config.debug) {
+                console.log('📹 Video auto capture disabled');
+            }
+        }
+
+        /**
+         * 获取视频自动采集状态
+         * @returns {Object|null} 状态对象或 null
+         */
+        getVideoAutoCaptureStatus() {
+            if (!this.videoAutoCaptureManager) {
+                return null;
+            }
+
+            return this.videoAutoCaptureManager.getStatus();
         }
     }
 

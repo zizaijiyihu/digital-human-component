@@ -8,6 +8,7 @@ import { LipSyncEngine } from './modules/LipSyncEngine.js';
 import { ExpressionManager } from './modules/ExpressionManager.js';
 import { EventEmitter } from './utils/EventEmitter.js';
 import { AudioStreamQueue } from './modules/AudioStreamQueue.js';
+import { VideoAutoCaptureManager } from './modules/VideoAutoCaptureManager.js';
 
 /**
  * 数字人组件
@@ -114,6 +115,10 @@ export class DigitalHuman extends EventEmitter {
         this.cameraPipMouseEnterHandler = null;
         this.cameraPipMouseLeaveHandler = null;
         this.cameraPipClickHandler = null;
+
+        // 视频自动采集相关
+        this.videoAutoCaptureManager = null;
+        this.isVideoAutoCaptureEnabled = false;
 
         // 资源引用
         this.avatar = null;
@@ -777,6 +782,11 @@ export class DigitalHuman extends EventEmitter {
     exitVideoCallMode() {
         if (!this.isVideoCallMode) {
             return;
+        }
+
+        // 停止视频自动采集（如果已启动）
+        if (this.isVideoAutoCaptureEnabled) {
+            this.disableVideoAutoCapture();
         }
 
         // 停止音频可视化
@@ -1556,5 +1566,105 @@ export class DigitalHuman extends EventEmitter {
         };
 
         draw();
+    }
+
+    /**
+     * 启动视频自动采集
+     * @param {Object} options - 配置选项
+     * @param {Function} options.onVideoCapture - 视频捕获回调 (videoBlob, metadata) => {}
+     * @param {number} [options.bufferDuration=5000] - 缓冲区时长（毫秒）
+     * @param {number} [options.speechThreshold=40] - 说话检测阈值
+     * @param {number} [options.silenceDuration=2000] - 静音持续时间（毫秒）
+     * @param {number} [options.minSpeakDuration=500] - 最小说话时长（毫秒）
+     * @param {number} [options.maxRecordDuration=300000] - 最大录制时长（毫秒，默认 5 分钟）
+     * @param {string} [options.videoFormat='video/webm'] - 视频格式
+     * @param {number} [options.videoBitsPerSecond=2500000] - 视频比特率
+     * @param {Function} [options.onSpeakingStart] - 说话开始回调
+     * @param {Function} [options.onSpeakingEnd] - 说话结束回调
+     * @param {Function} [options.onError] - 错误回调
+     */
+    async enableVideoAutoCapture(options = {}) {
+        // 必须在视频通话模式下才能使用
+        if (!this.isVideoCallMode) {
+            const error = new Error('Video auto capture is only available in video call mode');
+            console.error(error.message);
+            if (options.onError) {
+                options.onError(error);
+            }
+            throw error;
+        }
+
+        // 已经启动
+        if (this.isVideoAutoCaptureEnabled) {
+            console.warn('Video auto capture already enabled');
+            return;
+        }
+
+        // 验证必选参数
+        if (!options.onVideoCapture || typeof options.onVideoCapture !== 'function') {
+            throw new Error('onVideoCapture callback is required');
+        }
+
+        try {
+            // 创建视频自动采集管理器
+            this.videoAutoCaptureManager = new VideoAutoCaptureManager(this.localMediaStream, options);
+
+            // 启动采集
+            await this.videoAutoCaptureManager.start();
+
+            this.isVideoAutoCaptureEnabled = true;
+
+            // 触发事件
+            this.emit('videoAutoCaptureEnabled');
+
+            if (this.config.debug) {
+                console.log('📹 Video auto capture enabled');
+            }
+
+        } catch (error) {
+            console.error('Failed to enable video auto capture:', error);
+            this.emit('videoAutoCaptureError', { error });
+            if (options.onError) {
+                options.onError(error);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * 停止视频自动采集
+     */
+    disableVideoAutoCapture() {
+        if (!this.isVideoAutoCaptureEnabled) {
+            console.warn('Video auto capture is not enabled');
+            return;
+        }
+
+        // 停止采集
+        if (this.videoAutoCaptureManager) {
+            this.videoAutoCaptureManager.destroy();
+            this.videoAutoCaptureManager = null;
+        }
+
+        this.isVideoAutoCaptureEnabled = false;
+
+        // 触发事件
+        this.emit('videoAutoCaptureDisabled');
+
+        if (this.config.debug) {
+            console.log('📹 Video auto capture disabled');
+        }
+    }
+
+    /**
+     * 获取视频自动采集状态
+     * @returns {Object|null} 状态对象或 null
+     */
+    getVideoAutoCaptureStatus() {
+        if (!this.videoAutoCaptureManager) {
+            return null;
+        }
+
+        return this.videoAutoCaptureManager.getStatus();
     }
 }

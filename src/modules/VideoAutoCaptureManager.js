@@ -66,7 +66,10 @@ export class VideoAutoCaptureManager {
             this._initMediaRecorder();
 
             // 5. 启动录制和检测
+            console.log('[VideoCapture] Starting MediaRecorder with 100ms timeslice...');
             this.mediaRecorder.start(100); // 每 100ms 产生一个数据块
+            console.log('[VideoCapture] MediaRecorder state:', this.mediaRecorder.state);
+
             this.speechDetector.start(100); // 每 100ms 检测一次
 
             this.isRunning = true;
@@ -165,8 +168,10 @@ export class VideoAutoCaptureManager {
     _initMediaRecorder() {
         // 检查 MIME 类型支持
         let mimeType = this.config.videoFormat;
+        console.log(`[VideoCapture] Requested MIME type: ${mimeType}`);
+
         if (!MediaRecorder.isTypeSupported(mimeType)) {
-            console.warn(`${mimeType} not supported, trying fallback formats`);
+            console.warn(`[VideoCapture] ${mimeType} not supported, trying fallback formats`);
 
             // 尝试备选格式
             const fallbacks = [
@@ -178,16 +183,20 @@ export class VideoAutoCaptureManager {
             for (const format of fallbacks) {
                 if (MediaRecorder.isTypeSupported(format)) {
                     mimeType = format;
-                    console.log(`Using fallback format: ${format}`);
+                    console.log(`[VideoCapture] Using fallback format: ${format}`);
                     break;
                 }
             }
+        } else {
+            console.log(`[VideoCapture] Using supported format: ${mimeType}`);
         }
 
         this.mediaRecorder = new MediaRecorder(this.mediaStream, {
             mimeType: mimeType,
             videoBitsPerSecond: this.config.videoBitsPerSecond
         });
+
+        console.log(`[VideoCapture] MediaRecorder created with mimeType: ${this.mediaRecorder.mimeType}`);
 
         // 数据可用事件
         this.mediaRecorder.ondataavailable = (event) => {
@@ -203,6 +212,8 @@ export class VideoAutoCaptureManager {
                     this.circularBuffer.add(event.data, timestamp);
                     console.log(`[Buffer] Added chunk, buffer size: ${this.circularBuffer.getChunkCount()}, duration: ${this.circularBuffer.getDuration()}ms`);
                 }
+            } else {
+                console.warn('[VideoCapture] ondataavailable fired but data is empty or zero size');
             }
         };
 
@@ -328,6 +339,7 @@ export class VideoAutoCaptureManager {
      */
     getCurrentBufferVideo() {
         if (!this.circularBuffer || this.circularBuffer.getChunkCount() === 0) {
+            console.warn('[VideoCapture] Cannot get buffer video: buffer is empty or null');
             return null;
         }
 
@@ -343,6 +355,7 @@ export class VideoAutoCaptureManager {
         };
 
         console.log(`📹 Current buffer video: ${chunks.length} chunks, ${metadata.duration}ms, ${(videoBlob.size / 1024 / 1024).toFixed(2)} MB`);
+        console.log(`[VideoCapture] Buffer chunks sizes:`, chunks.map(c => c.size));
 
         return { blob: videoBlob, metadata };
     }

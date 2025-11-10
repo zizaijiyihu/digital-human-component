@@ -197,8 +197,8 @@ export class VideoAutoCaptureManager {
                 if (this.isRecording) {
                     // 正在录制，保存到录制缓冲区
                     this.recordingChunks.push(event.data);
-                } else {
-                    // 循环缓冲区模式
+                } else if (this.circularBuffer) {
+                    // 循环缓冲区模式（检查缓冲区是否存在）
                     this.circularBuffer.add(event.data, timestamp);
                 }
             }

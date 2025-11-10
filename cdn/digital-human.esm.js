@@ -2003,10 +2003,10 @@ class SpeechDetector {
 class CircularVideoBuffer {
     constructor(duration = 5000) {
         this.maxDuration = duration; // 最大缓冲时长（毫秒）
-        this.chunks = [];            // 视频数据块
+        this.chunks = [];            // 视频数据块（不包含初始化片段）
         this.timestamps = [];        // 对应的时间戳
         this.startTime = null;       // 缓冲区开始时间
-        this.initChunk = null;       // 初始化片段（WebM 头部，必须保留）
+        this.initChunk = null;       // 初始化片段（WebM 头部，单独保存）
         this.initTimestamp = null;   // 初始化片段的时间戳
     }
 
@@ -2020,18 +2020,26 @@ class CircularVideoBuffer {
             this.startTime = timestamp;
         }
 
-        // 保存第一个有意义的 chunk 作为初始化片段（通常 > 1KB）
+        // 第一个有意义的 chunk 是初始化片段（通常 > 1KB）
         // MediaRecorder 可能在启动时产生一个非常小的空 chunk，需要跳过
         if (this.initChunk === null && chunk.size > 1024) {
             this.initChunk = chunk;
             this.initTimestamp = timestamp;
-            console.log(`[CircularBuffer] Saved init chunk (${chunk.size} bytes) - contains video metadata`);
+            console.log(`[CircularBuffer] Saved init chunk (${chunk.size} bytes) - this is the header, will not be in circular buffer`);
+            // 初始化片段不加入循环缓冲区
+            return;
+        }
+
+        // 跳过初始化片段之前的小 chunk
+        if (this.initChunk === null) {
+            console.log(`[CircularBuffer] Skipping small chunk (${chunk.size} bytes) waiting for init segment`);
+            return;
         }
 
         this.chunks.push(chunk);
         this.timestamps.push(timestamp);
 
-        // 移除超过最大时长的旧片段（但保留初始化片段）
+        // 移除超过最大时长的旧片段
         this._pruneOldChunks(timestamp);
     }
 
@@ -2042,11 +2050,17 @@ class CircularVideoBuffer {
      */
     _pruneOldChunks(currentTime) {
         const cutoffTime = currentTime - this.maxDuration;
+        let removedCount = 0;
 
         // 正常清理超时的 chunks
         while (this.timestamps.length > 0 && this.timestamps[0] < cutoffTime) {
             this.chunks.shift();
             this.timestamps.shift();
+            removedCount++;
+        }
+
+        if (removedCount > 0) {
+            console.log(`[CircularBuffer] Pruned ${removedCount} old chunks, keeping ${this.chunks.length} chunks (${this.getDuration()}ms)`);
         }
 
         // 更新开始时间
@@ -2057,20 +2071,22 @@ class CircularVideoBuffer {
 
     /**
      * 获取所有缓冲的视频片段
-     * 确保初始化片段总是在最前面
+     * 始终将初始化片段放在最前面
      * @returns {Blob[]} 视频数据块数组
      */
     getAll() {
-        // 如果初始化片段存在且不在 chunks 数组中，将其添加到开头
-        if (this.initChunk && (this.chunks.length === 0 || this.chunks[0] !== this.initChunk)) {
-            console.log(`[CircularBuffer] Prepending init chunk to ensure valid video`);
+        // 初始化片段 + 循环缓冲区的数据片段
+        if (this.initChunk) {
+            console.log(`[CircularBuffer] Returning ${this.chunks.length + 1} chunks (1 init + ${this.chunks.length} media segments)`);
             return [this.initChunk, ...this.chunks];
         }
+        console.warn(`[CircularBuffer] No init chunk found, returning ${this.chunks.length} chunks (may not be playable)`);
         return [...this.chunks];
     }
 
     /**
      * 获取缓冲区的时长（毫秒）
+     * 基于实际的媒体片段时间戳计算
      * @returns {number}
      */
     getDuration() {
@@ -2078,7 +2094,11 @@ class CircularVideoBuffer {
             return 0;
         }
 
-        return this.timestamps[this.timestamps.length - 1] - this.timestamps[0];
+        // 计算最后一个片段和第一个片段的时间差
+        const duration = this.timestamps[this.timestamps.length - 1] - this.timestamps[0];
+
+        // 时长不应超过最大缓冲时长
+        return Math.min(duration, this.maxDuration);
     }
 
     /**

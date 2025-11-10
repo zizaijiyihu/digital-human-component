@@ -2041,8 +2041,9 @@
                 this.startTime = timestamp;
             }
 
-            // 第一个 chunk 是初始化片段，包含 WebM 文件头和元数据
-            if (this.initChunk === null) {
+            // 保存第一个有意义的 chunk 作为初始化片段（通常 > 1KB）
+            // MediaRecorder 可能在启动时产生一个非常小的空 chunk，需要跳过
+            if (this.initChunk === null && chunk.size > 1024) {
                 this.initChunk = chunk;
                 this.initTimestamp = timestamp;
                 console.log(`[CircularBuffer] Saved init chunk (${chunk.size} bytes) - contains video metadata`);

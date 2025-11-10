@@ -154,15 +154,15 @@
                 </div>
             </div>
 
-            <!-- 🆕 视频自动采集 -->
+            <!-- 🆕 视频自动采集（分组录制） -->
             <div class="control-section">
-                <div class="section-title">🎬 视频自动采集（新功能）</div>
+                <div class="section-title">🎬 视频自动采集（分组录制）</div>
                 <button id="btnEnableCapture" disabled>📹 启动视频采集</button>
                 <button id="btnDisableCapture" disabled>⏹ 停止视频采集</button>
-                <button id="btnDownloadBuffer" disabled>💾 下载缓冲区视频（5秒）</button>
-                <button id="btnDownloadRecording" disabled>💾 下载录制视频</button>
+                <button id="btnDownloadGroups" disabled>💾 下载所有视频组</button>
                 <div style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 8px;">
-                    💡 自动采集【最近5秒+说话期间】的视频，需先进入视频通话模式<br>
+                    💡 循环录制 1 组视频，每组 5 秒<br>
+                    🎤 说话时自动捕获：说话前的 1 组 + 说话期间的 1 组<br>
                     📊 采集状态：<span id="captureStatus">未启动</span><br>
                     🎚️ 音频能量：<span id="audioEnergy">--</span> / 阈值：<span id="energyThreshold">--</span>
                 </div>
@@ -513,13 +513,12 @@
 
         const btnEnableCapture = document.getElementById('btnEnableCapture');
         const btnDisableCapture = document.getElementById('btnDisableCapture');
-        const btnDownloadBuffer = document.getElementById('btnDownloadBuffer');
-        const btnDownloadRecording = document.getElementById('btnDownloadRecording');
+        const btnDownloadGroups = document.getElementById('btnDownloadGroups');
         const captureStatus = document.getElementById('captureStatus');
         const audioEnergy = document.getElementById('audioEnergy');
         const energyThreshold = document.getElementById('energyThreshold');
 
-        let lastCapturedVideo = null; // 保存最后一个录制的视频
+        let lastVideoGroups = null;    // 保存视频组
         let energyMonitorInterval = null; // 能量监控定时器
 
         /**
@@ -528,24 +527,38 @@
         btnEnableCapture.addEventListener('click', async () => {
             try {
                 await avatar.enableVideoAutoCapture({
-                    bufferDuration: 5000,          // 5秒缓冲
+                    maxGroups: 1,                  // 保留 1 组视频
+                    groupDuration: 5000,           // 每组 5 秒
                     speechThreshold: 30,           // 阈值 30（降低以提高灵敏度）
                     silenceDuration: 2000,         // 静音 2 秒后结束
                     minSpeakDuration: 500,         // 最小说话时长 500ms
                     maxRecordDuration: 300000,     // 最大录制 5 分钟
 
-                    onVideoCapture: (videoBlob, metadata) => {
-                        console.log('📹 捕获到完整录制视频:', metadata);
-                        lastCapturedVideo = {
-                            blob: videoBlob,
-                            metadata: metadata
-                        };
+                    onVideoCapture: (videoGroups) => {
+                        console.log(`📹 捕获到 ${videoGroups.length} 个视频组:`);
 
-                        // 启用录制视频下载按钮
-                        btnDownloadRecording.disabled = false;
+                        let totalDuration = 0;
+                        let totalSize = 0;
+
+                        videoGroups.forEach((group, index) => {
+                            const duration = (group.duration / 1000).toFixed(1);
+                            const size = (group.size / 1024 / 1024).toFixed(2);
+                            totalDuration += group.duration;
+                            totalSize += group.size;
+
+                            console.log(`  [${index + 1}] ${group.type}: ${duration}s, ${size} MB`);
+                        });
+
+                        // 保存视频组
+                        lastVideoGroups = videoGroups;
+
+                        // 启用下载按钮
+                        btnDownloadGroups.disabled = false;
 
                         // 更新状态
-                        updateStatus(`✅ 捕获到完整录制 ${(metadata.duration / 1000).toFixed(1)}秒 的视频 (${(videoBlob.size / 1024 / 1024).toFixed(2)} MB)`);
+                        const avgDuration = (totalDuration / 1000).toFixed(1);
+                        const avgSize = (totalSize / 1024 / 1024).toFixed(2);
+                        updateStatus(`✅ 捕获完成：${videoGroups.length} 组视频，总计 ${avgDuration}s (${avgSize}MB)`);
                     },
 
                     onSpeakingStart: () => {
@@ -579,9 +592,8 @@
                 // 更新 UI
                 btnEnableCapture.disabled = true;
                 btnDisableCapture.disabled = false;
-                btnDownloadBuffer.disabled = false; // 启动采集后立即可以下载缓冲区
-                btnDownloadRecording.disabled = true; // 录制视频需要等待说话
-                captureStatus.textContent = '⏸️ 待机中（循环缓冲）';
+                btnDownloadGroups.disabled = false;   // 立即可用！随时下载视频组
+                captureStatus.textContent = '⏸️ 待机中（循环录制 1 组）';
                 captureStatus.style.color = '#44ff44';
 
                 // 启动能量监控
@@ -600,8 +612,8 @@
                     }
                 }, 100); // 每100ms更新一次
 
-                updateStatus('✅ 视频自动采集已启动，可随时下载视频');
-                console.log('✅ 视频自动采集已启动，阈值: 30');
+                updateStatus('✅ 视频自动采集已启动（1 组 × 5 秒）');
+                console.log('✅ 视频自动采集已启动：1 组 × 5 秒');
 
             } catch (error) {
                 console.error('启动视频采集失败:', error);
@@ -625,8 +637,7 @@
             // 更新 UI
             btnEnableCapture.disabled = false;
             btnDisableCapture.disabled = true;
-            btnDownloadBuffer.disabled = true;
-            btnDownloadRecording.disabled = true;
+            btnDownloadGroups.disabled = true;
             captureStatus.textContent = '未启动';
             captureStatus.style.color = 'rgba(255,255,255,0.7)';
             audioEnergy.textContent = '--';
@@ -637,57 +648,43 @@
         });
 
         /**
-         * 下载缓冲区视频（最近 5 秒）
+         * 下载所有视频组（随时调用或说话后调用）
          */
-        btnDownloadBuffer.addEventListener('click', () => {
-            const videoData = avatar.getCurrentBufferVideo();
+        btnDownloadGroups.addEventListener('click', () => {
+            // 如果有说话捕获的视频组，优先使用
+            let videoGroups = lastVideoGroups;
 
-            if (!videoData) {
-                alert('缓冲区为空，请等待数据积累');
+            // 如果没有，获取当前所有视频组
+            if (!videoGroups || videoGroups.length === 0) {
+                videoGroups = avatar.getAllVideoGroups();
+            }
+
+            if (!videoGroups || videoGroups.length === 0) {
+                alert('没有可用的视频组，请等待几秒让视频积累');
+                updateStatus('⚠️ 没有可用的视频组');
                 return;
             }
 
-            const { blob, metadata } = videoData;
+            console.log(`💾 下载 ${videoGroups.length} 个视频组`);
 
-            // 创建下载链接
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `buffer-${Date.now()}.webm`;
+            // 下载每个视频组
+            videoGroups.forEach((group, index) => {
+                const url = URL.createObjectURL(group.blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `video-group-${index + 1}-${group.type || 'normal'}-${Date.now()}.webm`;
 
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
 
-            console.log(`💾 缓冲区视频已下载: ${(metadata.duration / 1000).toFixed(1)}秒, ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
-            updateStatus(`💾 缓冲区视频已下载: ${(metadata.duration / 1000).toFixed(1)}秒`);
-        });
+                const duration = (group.duration / 1000).toFixed(1);
+                const size = (group.size / 1024 / 1024).toFixed(2);
+                console.log(`  [${index + 1}] ${group.type || 'normal'}: ${duration}s, ${size} MB`);
+            });
 
-        /**
-         * 下载录制视频（说话期间 + 前 5 秒）
-         */
-        btnDownloadRecording.addEventListener('click', () => {
-            if (!lastCapturedVideo) {
-                alert('没有录制视频，请先说话触发录制');
-                return;
-            }
-
-            const { blob, metadata } = lastCapturedVideo;
-
-            // 创建下载链接
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `recording-${metadata.startTime || Date.now()}.webm`;
-
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-
-            console.log(`💾 录制视频已下载: ${(metadata.duration / 1000).toFixed(1)}秒, ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
-            updateStatus(`💾 录制视频已下载: ${(metadata.duration / 1000).toFixed(1)}秒`);
+            updateStatus(`💾 已下载 ${videoGroups.length} 个视频组`);
         });
 
         // 监听进入视频通话模式事件，启用采集按钮
@@ -699,8 +696,7 @@
         avatar.on('videoCallExit', () => {
             btnEnableCapture.disabled = true;
             btnDisableCapture.disabled = true;
-            btnDownloadBuffer.disabled = true;
-            btnDownloadRecording.disabled = true;
+            btnDownloadGroups.disabled = true;
             captureStatus.textContent = '未启动';
             captureStatus.style.color = 'rgba(255,255,255,0.7)';
         });

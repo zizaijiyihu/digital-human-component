@@ -619,14 +619,15 @@ avatar.on('videoCallError', ({ error }) => {
 
 ---
 
-## 🎬 视频自动采集（最新功能）
+## 🎬 视频自动采集（最新功能 - 分组录制架构）
 
 ### 什么是视频自动采集？
 
-视频自动采集功能可以自动录制用户说话的视频片段，包含：
-- 📹 **最近 5 秒**的缓冲视频
-- 🗣️ **检测到说话开始 → 说话结束**期间的完整视频
-- 💾 自动将视频传递给回调函数处理（上传/保存等）
+视频自动采集功能采用**分组录制架构**，自动录制用户说话的视频片段，包含：
+- 📹 **说话前的 N 组视频**（默认 1 组，每组 5 秒，可自定义）
+- 🗣️ **说话期间的 1 组视频**（完整录制说话过程）
+- 💾 自动将视频组数组传递给回调函数处理（上传/保存等）
+- ✅ **每个视频组都是完整可播放的 WebM 文件**（包含 header）
 
 ### 使用场景
 
@@ -647,24 +648,41 @@ await avatar.enterVideoCallMode();
 
 // 2. 启动视频自动采集
 await avatar.enableVideoAutoCapture({
-    // 必选：视频捕获回调
-    onVideoCapture: (videoBlob, metadata) => {
-        console.log('捕获到视频:', videoBlob);
-        console.log('时长:', metadata.duration, 'ms');
-        console.log('大小:', metadata.size, 'bytes');
+    // 必选：视频捕获回调（接收视频组数组）
+    onVideoCapture: (videoGroups) => {
+        console.log(`捕获到 ${videoGroups.length} 个视频组`);
 
-        // 上传到服务器
-        const formData = new FormData();
-        formData.append('video', videoBlob, 'capture.webm');
+        // videoGroups 是数组，每个元素包含：
+        // - blob: Blob (视频数据)
+        // - duration: number (时长，毫秒)
+        // - startTime: number (开始时间戳)
+        // - endTime: number (结束时间戳)
+        // - size: number (文件大小，字节)
+        // - type: string ('before-speaking' 或 'speaking')
 
-        fetch('/api/upload-video', {
-            method: 'POST',
-            body: formData
+        videoGroups.forEach((group, index) => {
+            console.log(`视频组 ${index + 1}:`, {
+                type: group.type,
+                duration: `${(group.duration / 1000).toFixed(1)}s`,
+                size: `${(group.size / 1024 / 1024).toFixed(2)} MB`
+            });
+
+            // 上传每个视频组到服务器
+            const formData = new FormData();
+            formData.append('video', group.blob, `video-${index + 1}.webm`);
+            formData.append('type', group.type);
+            formData.append('duration', group.duration);
+
+            fetch('/api/upload-video', {
+                method: 'POST',
+                body: formData
+            });
         });
     },
 
     // 可选配置
-    bufferDuration: 5000,           // 缓冲区时长（默认 5000ms）
+    maxGroups: 1,                   // 保留的视频组数量（默认 1 组）
+    groupDuration: 5000,            // 每组视频时长（默认 5000ms = 5 秒）
     speechThreshold: 40,            // 说话检测阈值（默认 40）
     silenceDuration: 2000,          // 静音持续时间（默认 2000ms）
     minSpeakDuration: 500,          // 最小说话时长（默认 500ms）
@@ -688,29 +706,33 @@ await avatar.enableVideoAutoCapture({
 avatar.disableVideoAutoCapture();
 ```
 
-### 工作原理
+### 工作原理（分组录制架构）
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  循环缓冲区                      │
-│         持续录制最近 5 秒视频                    │
-│    [━━━━━━━━━━━━━━━━━━━━━━━━━]                │
-└─────────────────────────────────────────────────┘
-                      ↓
-              检测到说话开始 🗣️
-                      ↓
-┌─────────────────────────────────────────────────┐
-│    保存缓冲区 + 继续录制说话期间视频             │
-│ [═══════][━━━━━━━━━━━━━━━━━━━━━━━]           │
-│  最近5秒    说话期间视频                         │
-└─────────────────────────────────────────────────┘
-                      ↓
-            检测到静音超过 2 秒 🔇
-                      ↓
-┌─────────────────────────────────────────────────┐
-│       合并视频片段 → 调用回调函数                │
-│            onVideoCapture(blob)                 │
-└─────────────────────────────────────────────────┘
+时间轴： 0s ──── 5s ──── 10s ──── 15s ──── 说话 ──── 结束
+         [组#1]  [组#2]  [组#3]
+          ↓       ↓       ↓
+      每 5 秒 MediaRecorder 重启一次（生成新 header）
+      每组都是完整可播放的 WebM 文件
+
+循环保留最近 N 组（默认 1 组）：
+时间： 0s ──── 5s ──── 10s
+       [组#1]  [组#2]  [组#3]
+        删除    删除    保留 ← 循环缓冲区
+
+检测到说话开始 🗣️
+    ↓
+快照说话前的 N 组 + 录制说话期间的 1 组
+    ↓
+说话结束 🔇
+    ↓
+传递视频组数组给回调：
+[
+  { blob, type: 'before-speaking', duration: 5000ms },  ← 说话前的组
+  { blob, type: 'speaking', duration: 8000ms }          ← 说话期间的组
+]
+    ↓
+清空已捕获的视频组（防止重复）
 ```
 
 ### API 文档
@@ -722,10 +744,11 @@ avatar.disableVideoAutoCapture();
 ```javascript
 {
     // ===== 必选参数 =====
-    onVideoCapture: (videoBlob, metadata) => {},  // 视频捕获回调
+    onVideoCapture: (videoGroups) => {},  // 视频捕获回调（接收视频组数组）
 
     // ===== 可选配置 =====
-    bufferDuration: 5000,           // 缓冲区时长（毫秒），默认 5000
+    maxGroups: 1,                   // 保留的视频组数量，默认 1
+    groupDuration: 5000,            // 每组视频时长（毫秒），默认 5000
     speechThreshold: 40,            // 说话检测阈值（0-255），默认 40
     silenceDuration: 2000,          // 判定为静音的持续时间（毫秒），默认 2000
     minSpeakDuration: 500,          // 最小说话时长（毫秒），默认 500
@@ -742,16 +765,26 @@ avatar.disableVideoAutoCapture();
 
 **onVideoCapture 回调参数：**
 ```javascript
-// videoBlob: Blob - 视频数据
-// metadata: Object - 元数据
-{
-    duration: 15000,          // 视频时长（毫秒）
-    startTime: 1699999999999, // 开始时间戳
-    endTime: 1700000014999,   // 结束时间戳
-    size: 1048576,            // 文件大小（字节）
-    chunkCount: 150,          // 视频片段数量
-    format: 'video/webm'      // 视频格式
-}
+// videoGroups: Array<VideoGroup> - 视频组数组
+// 每个 VideoGroup 包含：
+[
+    {
+        blob: Blob,                   // 视频数据（WebM 格式，可直接播放）
+        duration: 5000,              // 视频时长（毫秒）
+        startTime: 1699999999999,    // 开始时间戳
+        endTime: 1700000004999,      // 结束时间戳
+        size: 1048576,               // 文件大小（字节）
+        type: 'before-speaking'      // 类型：'before-speaking' 或 'speaking'
+    },
+    {
+        blob: Blob,
+        duration: 8000,
+        startTime: 1700000004999,
+        endTime: 1700000012999,
+        size: 2097152,
+        type: 'speaking'
+    }
+]
 ```
 
 **返回：** `Promise<void>`
@@ -773,12 +806,28 @@ avatar.disableVideoAutoCapture();
 {
     isRunning: true,              // 是否正在运行
     isRecording: false,           // 是否正在录制
-    bufferDuration: 5000,         // 缓冲区时长（毫秒）
-    bufferChunks: 50,             // 缓冲区片段数量
-    bufferSize: 524288,           // 缓冲区大小（字节）
-    recordingDuration: 0,         // 当前录制时长（毫秒）
-    recordingChunks: 0            // 当前录制片段数量
+    groupCount: 1,                // 当前保留的视频组数量
+    currentEnergy: 25.5,          // 当前音频能量值
+    threshold: 40,                // 说话检测阈值
+    isSpeaking: false             // 是否正在说话
 }
+```
+
+#### getAllVideoGroups()
+获取当前所有视频组（随时调用）
+
+**返回：** `Array<VideoGroup>`
+```javascript
+[
+    {
+        blob: Blob,               // 视频数据
+        duration: 5000,          // 时长（毫秒）
+        startTime: 1699999999999,
+        endTime: 1700000004999,
+        size: 1048576,
+        isRecording: false       // 是否正在录制中
+    }
+]
 ```
 
 ### 完整示例
@@ -800,31 +849,42 @@ await avatar.enterVideoCallMode({
 
 // 启动视频自动采集
 await avatar.enableVideoAutoCapture({
-    bufferDuration: 5000,
+    maxGroups: 1,             // 保留 1 组视频
+    groupDuration: 5000,      // 每组 5 秒
     speechThreshold: 40,
 
-    onVideoCapture: async (videoBlob, metadata) => {
-        console.log(`📹 捕获到 ${metadata.duration}ms 的视频`);
+    onVideoCapture: async (videoGroups) => {
+        console.log(`📹 捕获到 ${videoGroups.length} 个视频组`);
 
-        // 方式 1：下载到本地
-        const url = URL.createObjectURL(videoBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `video-${metadata.startTime}.webm`;
-        a.click();
-        URL.revokeObjectURL(url);
+        // 遍历所有视频组
+        for (const [index, group] of videoGroups.entries()) {
+            console.log(`视频组 ${index + 1}:`, {
+                type: group.type,
+                duration: `${(group.duration / 1000).toFixed(1)}s`,
+                size: `${(group.size / 1024 / 1024).toFixed(2)} MB`
+            });
 
-        // 方式 2：上传到服务器
-        const formData = new FormData();
-        formData.append('video', videoBlob, 'capture.webm');
-        formData.append('duration', metadata.duration);
+            // 方式 1：下载到本地
+            const url = URL.createObjectURL(group.blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `video-${index + 1}-${group.type}.webm`;
+            a.click();
+            URL.revokeObjectURL(url);
 
-        await fetch('/api/upload-video', {
-            method: 'POST',
-            body: formData
-        });
+            // 方式 2：上传到服务器
+            const formData = new FormData();
+            formData.append('video', group.blob, `video-${index + 1}.webm`);
+            formData.append('type', group.type);
+            formData.append('duration', group.duration);
 
-        console.log('✅ 视频已上传');
+            await fetch('/api/upload-video', {
+                method: 'POST',
+                body: formData
+            });
+        }
+
+        console.log('✅ 所有视频已处理');
     },
 
     onSpeakingStart: () => {

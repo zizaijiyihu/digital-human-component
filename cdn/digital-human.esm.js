@@ -1997,122 +1997,153 @@ class SpeechDetector {
 }
 
 /**
- * 循环视频缓冲区
- * 维护最近 N 秒的视频片段
- * 策略：保留最近 N 秒的所有 chunks（包括第一个），超时的全部删除
+ * 循环视频缓冲区（分组录制架构）
+ * 维护最近 N 组视频，每组 M 秒
+ *
+ * 架构设计：
+ * - MediaRecorder 每 M 秒重启一次，生成一个独立的视频组
+ * - 每个视频组包含：完整的 initialization segment + media segments
+ * - 循环保留最近 N 组视频（默认 3 组）
+ * - 说话时：返回说话前的 N 组 + 说话期间的 1 组（共 N+1 组视频）
  */
 class CircularVideoBuffer {
-    constructor(duration = 5000) {
-        this.maxDuration = duration; // 最大缓冲时长（毫秒）
-        this.chunks = [];            // 视频数据块
-        this.timestamps = [];        // 对应的时间戳
-        this.startTime = null;       // 缓冲区开始时间
+    constructor(maxGroups = 1) {
+        this.maxGroups = maxGroups;  // 最多保留的视频组数量（默认 1 组）
+        this.videoGroups = [];       // 视频组数组：[{ blob, startTime, endTime, duration }, ...]
+        this.currentChunks = [];     // 当前组正在录制的 chunks
+        this.currentStartTime = null;
     }
 
     /**
-     * 添加视频片段
+     * 开始新的视频组（MediaRecorder 重启时调用）
+     * @param {number} timestamp - 开始时间戳
+     */
+    startNewGroup(timestamp) {
+        // 如果有当前正在录制的组，先完成它
+        if (this.currentChunks.length > 0) {
+            this._finishCurrentGroup(timestamp);
+        }
+
+        // 开始新组
+        this.currentChunks = [];
+        this.currentStartTime = timestamp;
+        console.log(`[CircularBuffer] Started new group #${this.videoGroups.length + 1} at ${timestamp}`);
+    }
+
+    /**
+     * 添加视频片段到当前组
      * @param {Blob} chunk - 视频数据块
-     * @param {number} timestamp - 时间戳（毫秒）
      */
-    add(chunk, timestamp) {
-        if (this.startTime === null) {
-            this.startTime = timestamp;
-            console.log(`[CircularBuffer] Started buffer at ${timestamp}`);
+    add(chunk) {
+        if (!this.currentStartTime) {
+            console.warn('[CircularBuffer] No current group, call startNewGroup first');
+            return;
         }
 
-        this.chunks.push(chunk);
-        this.timestamps.push(timestamp);
-
-        // 移除超过最大时长的旧片段
-        this._pruneOldChunks(timestamp);
+        this.currentChunks.push(chunk);
     }
 
     /**
-     * 清理超过最大时长的旧片段
-     * 只保留最近 N 秒的数据
+     * 完成当前组的录制
      * @private
-     * @param {number} currentTime - 当前时间戳
+     * @param {number} endTime - 结束时间戳
      */
-    _pruneOldChunks(currentTime) {
-        const cutoffTime = currentTime - this.maxDuration;
-        let removedCount = 0;
-
-        // 删除所有早于 cutoffTime 的 chunks（包括第一个）
-        while (this.chunks.length > 0 && this.timestamps[0] < cutoffTime) {
-            this.chunks.shift();
-            this.timestamps.shift();
-            removedCount++;
+    _finishCurrentGroup(endTime) {
+        if (this.currentChunks.length === 0) {
+            return;
         }
 
-        if (removedCount > 0) {
-            console.log(`[CircularBuffer] Pruned ${removedCount} old chunks, keeping ${this.chunks.length} chunks (duration: ${this.getDuration()}ms)`);
+        const duration = endTime - this.currentStartTime;
+        const blob = new Blob(this.currentChunks, { type: 'video/webm' });
+
+        const videoGroup = {
+            blob: blob,
+            startTime: this.currentStartTime,
+            endTime: endTime,
+            duration: duration,
+            size: blob.size,
+            chunkCount: this.currentChunks.length
+        };
+
+        this.videoGroups.push(videoGroup);
+        console.log(`[CircularBuffer] Group #${this.videoGroups.length} completed: ${(duration / 1000).toFixed(1)}s, ${(blob.size / 1024 / 1024).toFixed(2)} MB, ${this.currentChunks.length} chunks`);
+
+        // 清理旧组（只保留最近 N 组）
+        if (this.videoGroups.length > this.maxGroups) {
+            const removed = this.videoGroups.shift();
+            console.log(`[CircularBuffer] Removed old group: ${(removed.duration / 1000).toFixed(1)}s, ${(removed.size / 1024 / 1024).toFixed(2)} MB`);
         }
 
-        // 更新开始时间
-        if (this.timestamps.length > 0) {
-            this.startTime = this.timestamps[0];
-        }
+        // 重置当前组
+        this.currentChunks = [];
+        this.currentStartTime = null;
     }
 
     /**
-     * 获取所有缓冲的视频片段
-     * @returns {Blob[]} 视频数据块数组
+     * 获取所有已完成的视频组（不包括当前正在录制的组）
+     * @returns {Array} 视频组数组
      */
-    getAll() {
-        console.log(`[CircularBuffer] Returning ${this.chunks.length} chunks, duration: ${this.getDuration()}ms`);
-        return [...this.chunks];
+    getAllGroups() {
+        return [...this.videoGroups];
     }
 
     /**
-     * 获取缓冲区的时长（毫秒）
+     * 获取当前正在录制的组（包括未完成的）
+     * @returns {Object|null} 当前组的 blob 和元数据
+     */
+    getCurrentGroup() {
+        if (this.currentChunks.length === 0) {
+            return null;
+        }
+
+        const blob = new Blob(this.currentChunks, { type: 'video/webm' });
+        const duration = Date.now() - this.currentStartTime;
+
+        return {
+            blob: blob,
+            startTime: this.currentStartTime,
+            endTime: Date.now(),
+            duration: duration,
+            size: blob.size,
+            chunkCount: this.currentChunks.length,
+            isRecording: true  // 标记为正在录制中
+        };
+    }
+
+    /**
+     * 获取视频组数量
      * @returns {number}
      */
-    getDuration() {
-        if (this.timestamps.length < 2) {
-            return 0;
-        }
-
-        // 计算第一个到最后一个chunk的时间跨度
-        return this.timestamps[this.timestamps.length - 1] - this.timestamps[0];
+    getGroupCount() {
+        return this.videoGroups.length;
     }
 
     /**
-     * 获取缓冲区的片段数量
-     * @returns {number}
-     */
-    getChunkCount() {
-        return this.chunks.length;
-    }
-
-    /**
-     * 清空缓冲区
-     */
-    clear() {
-        this.chunks = [];
-        this.timestamps = [];
-        this.startTime = null;
-    }
-
-    /**
-     * 获取缓冲区总大小（字节）
-     * @returns {number}
-     */
-    getTotalSize() {
-        return this.chunks.reduce((total, chunk) => total + chunk.size, 0);
-    }
-
-    /**
-     * 检查缓冲区是否为空
+     * 检查是否为空
      * @returns {boolean}
      */
     isEmpty() {
-        return this.chunks.length === 0;
+        return this.videoGroups.length === 0 && this.currentChunks.length === 0;
+    }
+
+    /**
+     * 清空所有数据
+     */
+    clear() {
+        this.videoGroups = [];
+        this.currentChunks = [];
+        this.currentStartTime = null;
+        console.log('[CircularBuffer] Cleared all groups');
     }
 }
 
 /**
- * 视频自动采集管理器
- * 自动采集【最近5秒 + 检测到说话期间】的视频
+ * 视频自动采集管理器（分组录制架构）
+ *
+ * 核心逻辑：
+ * - 循环录制 N 组视频（默认 3 组），每组 M 秒（默认 3 秒）
+ * - 说话时：获取说话前的 N 组 + 说话期间的 1 组
+ * - 回调返回视频数组（按时间排序）
  */
 class VideoAutoCaptureManager {
     constructor(mediaStream, options = {}) {
@@ -2120,13 +2151,14 @@ class VideoAutoCaptureManager {
 
         // 配置参数
         this.config = {
-            bufferDuration: options.bufferDuration || 5000,           // 缓冲区时长（默认 5000ms）
-            speechThreshold: options.speechThreshold || 40,           // 说话检测阈值（默认 40）
-            silenceDuration: options.silenceDuration || 2000,         // 静音持续时间（默认 2000ms）
-            minSpeakDuration: options.minSpeakDuration || 500,        // 最小说话时长（默认 500ms）
-            maxRecordDuration: options.maxRecordDuration || 300000,   // 最大录制时长（默认 5 分钟）
-            videoFormat: options.videoFormat || 'video/webm',         // 视频格式（默认 webm）
-            videoBitsPerSecond: options.videoBitsPerSecond || 2500000 // 视频比特率（默认 2.5 Mbps）
+            maxGroups: options.maxGroups || 1,                    // 保留的视频组数量（默认 1 组）
+            groupDuration: options.groupDuration || 5000,         // 每组视频时长（默认 5000ms = 5 秒）
+            speechThreshold: options.speechThreshold || 40,       // 说话检测阈值
+            silenceDuration: options.silenceDuration || 2000,     // 静音持续时间
+            minSpeakDuration: options.minSpeakDuration || 500,    // 最小说话时长
+            maxRecordDuration: options.maxRecordDuration || 300000, // 最大录制时长（5 分钟）
+            videoFormat: options.videoFormat || 'video/webm',
+            videoBitsPerSecond: options.videoBitsPerSecond || 2500000
         };
 
         // 回调函数
@@ -2139,17 +2171,22 @@ class VideoAutoCaptureManager {
         this.isRunning = false;
         this.isRecording = false;
 
-        // 模块
-        this.mediaRecorder = null;
-        this.circularBuffer = null;
-        this.speechDetector = null;
+        // 核心组件
+        this.circularBuffer = null;      // 循环缓冲区（管理 N 组视频）
+        this.mediaRecorder = null;       // 唯一的 MediaRecorder
+        this.speechDetector = null;      // 说话检测器
         this.audioContext = null;
         this.audioAnalyser = null;
 
-        // 录制数据
-        this.recordingChunks = [];
-        this.recordingStartTime = null;
-        this.recordingTimeout = null;
+        // 定期重启定时器
+        this.restartTimer = null;
+
+        // 说话录制
+        this.speakingRecorder = null;    // 说话期间的录制器
+        this.speakingChunks = [];        // 说话期间的 chunks
+        this.speakingStartTime = null;
+        this.speakingTimeout = null;
+        this.snapshotGroups = null;      // 说话开始时的视频组快照
     }
 
     /**
@@ -2163,7 +2200,7 @@ class VideoAutoCaptureManager {
 
         try {
             // 1. 初始化循环缓冲区
-            this.circularBuffer = new CircularVideoBuffer(this.config.bufferDuration);
+            this.circularBuffer = new CircularVideoBuffer(this.config.maxGroups);
 
             // 2. 初始化音频分析器
             this._initAudioAnalyser();
@@ -2174,16 +2211,11 @@ class VideoAutoCaptureManager {
             // 4. 初始化 MediaRecorder
             this._initMediaRecorder();
 
-            // 5. 启动录制和检测
-            console.log('[VideoCapture] Starting MediaRecorder with 100ms timeslice...');
-            this.mediaRecorder.start(100); // 每 100ms 产生一个数据块
-            console.log('[VideoCapture] MediaRecorder state:', this.mediaRecorder.state);
-
-            this.speechDetector.start(100); // 每 100ms 检测一次
+            // 5. 启动循环录制
+            this._startRecording();
 
             this.isRunning = true;
-
-            console.log('✅ VideoAutoCaptureManager started');
+            console.log(`✅ VideoAutoCaptureManager started (${this.config.maxGroups} groups × ${this.config.groupDuration}ms)`);
 
         } catch (error) {
             console.error('Failed to start VideoAutoCaptureManager:', error);
@@ -2202,30 +2234,30 @@ class VideoAutoCaptureManager {
             return;
         }
 
+        // 停止定期重启定时器
+        if (this.restartTimer) {
+            clearInterval(this.restartTimer);
+            this.restartTimer = null;
+        }
+
         // 停止说话检测
         if (this.speechDetector) {
             this.speechDetector.stop();
         }
 
         // 停止 MediaRecorder
-        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
             this.mediaRecorder.stop();
         }
 
-        // 清理录制超时
-        if (this.recordingTimeout) {
-            clearTimeout(this.recordingTimeout);
-            this.recordingTimeout = null;
+        // 停止说话录制器
+        if (this.speakingRecorder && this.speakingRecorder.state === 'recording') {
+            this.speakingRecorder.stop();
         }
 
-        // 清空缓冲区
+        // 清理缓冲区
         if (this.circularBuffer) {
             this.circularBuffer.clear();
-        }
-
-        // 关闭音频上下文
-        if (this.audioContext && this.audioContext.state !== 'closed') {
-            this.audioContext.close();
         }
 
         this.isRunning = false;
@@ -2277,12 +2309,8 @@ class VideoAutoCaptureManager {
     _initMediaRecorder() {
         // 检查 MIME 类型支持
         let mimeType = this.config.videoFormat;
-        console.log(`[VideoCapture] Requested MIME type: ${mimeType}`);
 
         if (!MediaRecorder.isTypeSupported(mimeType)) {
-            console.warn(`[VideoCapture] ${mimeType} not supported, trying fallback formats`);
-
-            // 尝试备选格式
             const fallbacks = [
                 'video/webm;codecs=vp9,opus',
                 'video/webm;codecs=vp8,opus',
@@ -2296,48 +2324,75 @@ class VideoAutoCaptureManager {
                     break;
                 }
             }
-        } else {
-            console.log(`[VideoCapture] Using supported format: ${mimeType}`);
         }
 
+        // 创建 MediaRecorder
         this.mediaRecorder = new MediaRecorder(this.mediaStream, {
             mimeType: mimeType,
             videoBitsPerSecond: this.config.videoBitsPerSecond
         });
 
-        console.log(`[VideoCapture] MediaRecorder created with mimeType: ${this.mediaRecorder.mimeType}`);
-
-        // 数据可用事件
         this.mediaRecorder.ondataavailable = (event) => {
-            if (event.data && event.data.size > 0) {
-                const timestamp = Date.now();
-
-                if (this.isRecording) {
-                    // 正在录制，保存到录制缓冲区
-                    this.recordingChunks.push(event.data);
-                    console.log(`[Recording] Added chunk ${this.recordingChunks.length}, size: ${event.data.size} bytes`);
-                } else if (this.circularBuffer) {
-                    // 循环缓冲区模式（检查缓冲区是否存在）
-                    this.circularBuffer.add(event.data, timestamp);
-                    console.log(`[Buffer] Added chunk, buffer size: ${this.circularBuffer.getChunkCount()}, duration: ${this.circularBuffer.getDuration()}ms`);
-                }
-            } else {
-                console.warn('[VideoCapture] ondataavailable fired but data is empty or zero size');
+            if (event.data && event.data.size > 0 && this.circularBuffer) {
+                this.circularBuffer.add(event.data);
             }
         };
 
-        // 停止事件
         this.mediaRecorder.onstop = () => {
-            console.log('MediaRecorder stopped');
+            console.log('[Recorder] Stopped');
         };
 
-        // 错误事件
         this.mediaRecorder.onerror = (event) => {
-            console.error('MediaRecorder error:', event);
+            console.error('[Recorder] Error:', event);
             if (this.onError) {
                 this.onError(event.error);
             }
         };
+
+        console.log(`[VideoCapture] MediaRecorder created with mimeType: ${mimeType}`);
+    }
+
+    /**
+     * 启动循环录制
+     * @private
+     */
+    _startRecording() {
+        console.log(`[VideoCapture] Starting recording (${this.config.groupDuration}ms per group)`);
+
+        // 启动新的录制组
+        const timestamp = Date.now();
+        this.circularBuffer.startNewGroup(timestamp);
+
+        // 开始录制
+        this.mediaRecorder.start(100); // 每 100ms 产生一个 chunk
+        console.log('[Recorder] Started');
+
+        // 定期重启 MediaRecorder（每组录制完成后重启）
+        this.restartTimer = setInterval(() => {
+            if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+                console.log(`[VideoCapture] Restarting recorder (every ${this.config.groupDuration}ms)`);
+
+                // 停止当前录制
+                this.mediaRecorder.stop();
+
+                // 等待一小段时间后重启
+                setTimeout(() => {
+                    if (this.isRunning && this.mediaRecorder) {
+                        // 启动新的录制组
+                        const timestamp = Date.now();
+                        this.circularBuffer.startNewGroup(timestamp);
+
+                        // 重新开始录制
+                        this.mediaRecorder.start(100);
+                    }
+                }, 50);
+            }
+        }, this.config.groupDuration);
+
+        // 启动说话检测
+        this.speechDetector.start(100);
+
+        console.log(`[Recorder] Auto-restart enabled (interval: ${this.config.groupDuration}ms)`);
     }
 
     /**
@@ -2347,25 +2402,38 @@ class VideoAutoCaptureManager {
     _handleSpeakingStart() {
         console.log('🗣️ Speaking started');
 
-        // 触发用户回调
+        // 1. 快照当前所有已完成的视频组（说话前的 N 组）
+        this.snapshotGroups = this.circularBuffer.getAllGroups();
+        console.log(`📦 Snapshot ${this.snapshotGroups.length} groups before speaking`);
+
+        // 2. 触发用户回调
         if (this.onSpeakingStart) {
             this.onSpeakingStart();
         }
 
-        // 开始录制
+        // 3. 开始录制说话期间的视频
         this.isRecording = true;
-        this.recordingStartTime = Date.now();
-        this.recordingChunks = [];
+        this.speakingStartTime = Date.now();
+        this.speakingChunks = [];
 
-        // 将循环缓冲区的内容添加到录制缓冲区
-        const bufferedChunks = this.circularBuffer.getAll();
-        this.recordingChunks.push(...bufferedChunks);
+        // 创建说话录制器
+        this.speakingRecorder = new MediaRecorder(this.mediaStream, {
+            mimeType: this.mediaRecorder.mimeType,
+            videoBitsPerSecond: this.config.videoBitsPerSecond
+        });
 
-        console.log(`📹 Recording started with ${bufferedChunks.length} buffered chunks (${this.circularBuffer.getDuration()}ms)`);
+        this.speakingRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+                this.speakingChunks.push(event.data);
+            }
+        };
 
-        // 设置最大录制时长限制
-        this.recordingTimeout = setTimeout(() => {
-            console.warn('⚠️ Max recording duration reached, forcing stop');
+        this.speakingRecorder.start(100);
+        console.log('[SpeakingRecorder] Started');
+
+        // 4. 设置最大录制时长限制
+        this.speakingTimeout = setTimeout(() => {
+            console.warn('⚠️ Max speaking duration reached, forcing stop');
             this._handleSpeakingEnd();
         }, this.config.maxRecordDuration);
     }
@@ -2387,40 +2455,74 @@ class VideoAutoCaptureManager {
         }
 
         // 清理录制超时
-        if (this.recordingTimeout) {
-            clearTimeout(this.recordingTimeout);
-            this.recordingTimeout = null;
+        if (this.speakingTimeout) {
+            clearTimeout(this.speakingTimeout);
+            this.speakingTimeout = null;
         }
 
-        // 停止录制
+        // 停止说话录制器
+        if (this.speakingRecorder.state === 'recording') {
+            this.speakingRecorder.stop();
+        }
+
         this.isRecording = false;
 
-        // 计算录制时长
-        const duration = Date.now() - this.recordingStartTime;
+        // 等待最后的数据
+        setTimeout(() => {
+            // 计算说话时长
+            const duration = Date.now() - this.speakingStartTime;
 
-        // 合并视频片段
-        const videoBlob = new Blob(this.recordingChunks, { type: this.config.videoFormat });
+            // 合并说话期间的视频
+            const speakingBlob = new Blob(this.speakingChunks, { type: this.config.videoFormat });
 
-        console.log(`📹 Recording finished: ${this.recordingChunks.length} chunks, ${duration}ms, ${(videoBlob.size / 1024 / 1024).toFixed(2)} MB`);
+            console.log(`📹 Speaking video: ${(duration / 1000).toFixed(1)}s, ${(speakingBlob.size / 1024 / 1024).toFixed(2)} MB, ${this.speakingChunks.length} chunks`);
 
-        // 生成元数据
-        const metadata = {
-            duration: duration,
-            startTime: this.recordingStartTime,
-            endTime: Date.now(),
-            size: videoBlob.size,
-            chunkCount: this.recordingChunks.length,
-            format: this.config.videoFormat
-        };
+            // 构建视频组数组（说话前的 N 组 + 说话期间的 1 组）
+            const videoGroups = [];
 
-        // 触发视频捕获回调
-        if (this.onVideoCapture) {
-            this.onVideoCapture(videoBlob, metadata);
-        }
+            // 添加说话前的 N 组
+            for (const group of this.snapshotGroups) {
+                videoGroups.push({
+                    blob: group.blob,
+                    duration: group.duration,
+                    startTime: group.startTime,
+                    endTime: group.endTime,
+                    size: group.size,
+                    type: 'before-speaking'
+                });
+            }
 
-        // 清空录制缓冲区
-        this.recordingChunks = [];
-        this.recordingStartTime = null;
+            // 添加说话期间的 1 组
+            videoGroups.push({
+                blob: speakingBlob,
+                duration: duration,
+                startTime: this.speakingStartTime,
+                endTime: Date.now(),
+                size: speakingBlob.size,
+                type: 'speaking'
+            });
+
+            console.log(`✅ Total video groups: ${videoGroups.length} (${this.snapshotGroups.length} before + 1 speaking)`);
+
+            // 触发视频捕获回调
+            if (this.onVideoCapture) {
+                this.onVideoCapture(videoGroups);
+            }
+
+            // 🆕 清空已捕获的视频组，防止下次说话时重复捕获
+            // 清空缓冲区中的所有旧视频组
+            if (this.circularBuffer) {
+                this.circularBuffer.clear();
+                console.log('🗑️ Cleared captured video groups to prevent duplicates');
+            }
+
+            // 清理临时数据
+            this.snapshotGroups = null;
+            this.speakingChunks = [];
+            this.speakingStartTime = null;
+            this.speakingRecorder = null;
+
+        }, 200);
     }
 
     /**
@@ -2431,11 +2533,7 @@ class VideoAutoCaptureManager {
         return {
             isRunning: this.isRunning,
             isRecording: this.isRecording,
-            bufferDuration: this.circularBuffer ? this.circularBuffer.getDuration() : 0,
-            bufferChunks: this.circularBuffer ? this.circularBuffer.getChunkCount() : 0,
-            bufferSize: this.circularBuffer ? this.circularBuffer.getTotalSize() : 0,
-            recordingDuration: this.isRecording ? Date.now() - this.recordingStartTime : 0,
-            recordingChunks: this.recordingChunks.length,
+            groupCount: this.circularBuffer ? this.circularBuffer.getGroupCount() : 0,
             currentEnergy: this.speechDetector ? this.speechDetector.getCurrentEnergy() : 0,
             threshold: this.config.speechThreshold,
             isSpeaking: this.speechDetector ? this.speechDetector.getSpeakingState() : false
@@ -2443,37 +2541,23 @@ class VideoAutoCaptureManager {
     }
 
     /**
-     * 获取当前缓冲区的视频（最近5秒）
-     * @returns {Object|null} { blob: Blob, metadata: Object } 或 null
+     * 获取所有视频组（随时调用）
+     * @returns {Array} 视频组数组
      */
-    getCurrentBufferVideo() {
-        if (!this.circularBuffer || this.circularBuffer.getChunkCount() === 0) {
-            console.warn('[VideoCapture] Cannot get buffer video: buffer is empty or null');
-            return null;
+    getAllVideoGroups() {
+        if (!this.circularBuffer) {
+            return [];
         }
 
-        const chunks = this.circularBuffer.getAll();
+        const groups = this.circularBuffer.getAllGroups();
 
-        // 详细诊断
-        console.log(`[VideoCapture] Getting buffer video:`);
-        console.log(`  - Total chunks: ${chunks.length}`);
-        console.log(`  - First chunk size: ${chunks[0]?.size || 0} bytes (should be init segment)`);
-        console.log(`  - Chunk sizes:`, chunks.map(c => c.size));
-        console.log(`  - Using mimeType: ${this.config.videoFormat}`);
+        // 可选：包含当前正在录制的组
+        const currentGroup = this.circularBuffer.getCurrentGroup();
+        if (currentGroup) {
+            groups.push(currentGroup);
+        }
 
-        const videoBlob = new Blob(chunks, { type: this.config.videoFormat });
-
-        const metadata = {
-            duration: this.circularBuffer.getDuration(),
-            size: videoBlob.size,
-            chunkCount: chunks.length,
-            format: this.config.videoFormat,
-            type: 'buffer' // 标记这是缓冲区视频
-        };
-
-        console.log(`📹 Current buffer video: ${chunks.length} chunks, ${metadata.duration}ms, ${(videoBlob.size / 1024 / 1024).toFixed(2)} MB`);
-
-        return { blob: videoBlob, metadata };
+        return groups;
     }
 
     /**
@@ -2485,6 +2569,7 @@ class VideoAutoCaptureManager {
         this.circularBuffer = null;
         this.speechDetector = null;
         this.mediaRecorder = null;
+        this.speakingRecorder = null;
         this.audioAnalyser = null;
         this.audioContext = null;
 
@@ -3593,7 +3678,7 @@ class DigitalHuman extends EventEmitter {
             return;
         }
 
-        const container = this.config.container;
+        this.config.container;
         const isCurrentlySmallWindow = this.currentPipScale < 1.0;
 
         if (this.config.debug) {
@@ -3601,265 +3686,20 @@ class DigitalHuman extends EventEmitter {
         }
 
         try {
+            const pipScale = options.pipScale || 0.25;
+            const pipPosition = options.pipPosition || this.currentPipPosition || 'bottom-right';
+
             if (isCurrentlySmallWindow) {
-                // ===== 从 "摄像头主窗口" 切换到 "数字人主窗口" =====
-
-                // 1. 停止音频可视化
-                if (this.visualizerAnimationId) {
-                    cancelAnimationFrame(this.visualizerAnimationId);
-                    this.visualizerAnimationId = null;
-                }
-
-                // 2. 获取需要的元素和配置
-                const digitalHumanCanvas = this.sceneManager.renderer.domElement;
-                const pipScale = options.pipScale || 0.25;
-                const pipWidth = container.offsetWidth * pipScale;
-                const pipHeight = container.offsetHeight * pipScale;
-                const pipPosition = options.pipPosition || this.currentPipPosition || 'bottom-right';
-
-                const positions = {
-                    'bottom-right': { bottom: '20px', right: '20px' },
-                    'bottom-left': { bottom: '20px', left: '20px' },
-                    'top-right': { top: '20px', right: '20px' },
-                    'top-left': { top: '20px', left: '20px' }
-                };
-                const posStyle = positions[pipPosition] || positions['bottom-right'];
-
-                // 3. 移除数字人 PiP 容器的 hover 事件监听器（因为即将变成大窗口）
-                if (this.pipContainer && this.pipMouseEnterHandler) {
-                    this.pipContainer.removeEventListener('mouseenter', this.pipMouseEnterHandler);
-                    this.pipContainer.removeEventListener('mouseleave', this.pipMouseLeaveHandler);
-                    this.pipContainer.removeEventListener('click', this.pipClickHandler);
-                    this.pipMouseEnterHandler = null;
-                    this.pipMouseLeaveHandler = null;
-                    this.pipClickHandler = null;
-                }
-
-                // 4. 移除摄像头主容器
-                if (this.videoCallContainer && this.videoCallContainer.parentNode) {
-                    this.videoCallContainer.parentNode.removeChild(this.videoCallContainer);
-                }
-
-                // 5. 将数字人 PiP 容器改为全屏
-                this.pipContainer.style.cssText = `
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    border: none;
-                    box-shadow: none;
-                    border-radius: 0;
-                    overflow: hidden;
-                    z-index: 1;
-                    cursor: default;
-                    background: ${this.config.backgroundColor || '#1a1a2e'};
-                `;
-
-                // 5. 调整数字人 canvas 尺寸到全屏
-                this.sceneManager.renderer.setSize(container.offsetWidth, container.offsetHeight);
-                this.sceneManager.camera.aspect = container.offsetWidth / container.offsetHeight;
-                this.sceneManager.camera.updateProjectionMatrix();
-
-                // 6. 创建摄像头小窗口
-                this.cameraPipContainer = document.createElement('div');
-                this.cameraPipContainer.className = 'digital-human-camera-pip-container';
-                this.cameraPipContainer.style.cssText = `
-                    position: absolute;
-                    ${posStyle.top ? `top: ${posStyle.top};` : ''}
-                    ${posStyle.bottom ? `bottom: ${posStyle.bottom};` : ''}
-                    ${posStyle.left ? `left: ${posStyle.left};` : ''}
-                    ${posStyle.right ? `right: ${posStyle.right};` : ''}
-                    width: ${pipWidth}px;
-                    height: ${pipHeight}px;
-                    border-radius: 0;
-                    overflow: hidden;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-                    z-index: 200;
-                    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-                    cursor: pointer;
-                    border: 3px solid rgba(255, 255, 255, 0.2);
-                `;
-
-                // 7. 创建摄像头视频元素
-                this.cameraVideoElement = document.createElement('video');
-                this.cameraVideoElement.autoplay = true;
-                this.cameraVideoElement.playsInline = true;
-                this.cameraVideoElement.muted = true;
-                this.cameraVideoElement.style.cssText = `
-                    width: 100%;
-                    height: 100%;
-                    object-fit: cover;
-                    transform: scaleX(-1);
-                `;
-                this.cameraVideoElement.srcObject = this.localMediaStream;
-
-                this.cameraPipContainer.appendChild(this.cameraVideoElement);
-                container.appendChild(this.cameraPipContainer);
-
-                // 8. 添加悬停效果（保存引用以便后续移除）
-                this.cameraPipMouseEnterHandler = () => {
-                    this.cameraPipContainer.style.transform = 'scale(1.05)';
-                    this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
-                };
-
-                this.cameraPipMouseLeaveHandler = () => {
-                    this.cameraPipContainer.style.transform = 'scale(1)';
-                    this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                };
-
-                this.cameraPipClickHandler = async (event) => {
-                    event.stopPropagation();
-                    await this.toggleWindowSize();
-                };
-
-                this.cameraPipContainer.addEventListener('mouseenter', this.cameraPipMouseEnterHandler);
-                this.cameraPipContainer.addEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
-                this.cameraPipContainer.addEventListener('click', this.cameraPipClickHandler);
-
-                // 10. 更新状态
-                this.currentPipScale = 1.0;
-                this.localVideoElement = null;
-                this.videoCallContainer = null;
-
+                // ===== 从 "摄像头主窗口 + 数字人小窗口" 切换到 "数字人主窗口 + 摄像头小窗口" =====
+                await this._toggleToDigitalHumanMain(pipPosition, pipScale, options);
             } else {
-                // ===== 从 "数字人主窗口" 切换到 "摄像头主窗口" =====
-
-                // 1. 移除摄像头小窗口的事件监听器
-                if (this.cameraPipContainer && this.cameraPipMouseEnterHandler) {
-                    this.cameraPipContainer.removeEventListener('mouseenter', this.cameraPipMouseEnterHandler);
-                    this.cameraPipContainer.removeEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
-                    this.cameraPipContainer.removeEventListener('click', this.cameraPipClickHandler);
-                    this.cameraPipMouseEnterHandler = null;
-                    this.cameraPipMouseLeaveHandler = null;
-                    this.cameraPipClickHandler = null;
-                }
-
-                // 2. 获取配置
-                const pipScale = options.pipScale || 0.25;
-                const pipWidth = container.offsetWidth * pipScale;
-                const pipHeight = container.offsetHeight * pipScale;
-                const pipPosition = options.pipPosition || this.currentPipPosition || 'bottom-right';
-
-                const positions = {
-                    'bottom-right': { bottom: '20px', right: '20px' },
-                    'bottom-left': { bottom: '20px', left: '20px' },
-                    'top-right': { top: '20px', right: '20px' },
-                    'top-left': { top: '20px', left: '20px' }
-                };
-                const posStyle = positions[pipPosition] || positions['bottom-right'];
-
-                // 3. 移除摄像头小窗口
-                if (this.cameraPipContainer && this.cameraPipContainer.parentNode) {
-                    this.cameraPipContainer.parentNode.removeChild(this.cameraPipContainer);
-                }
-
-                // 4. 创建摄像头主容器
-                this.videoCallContainer = document.createElement('div');
-                this.videoCallContainer.className = 'digital-human-video-call-container';
-                this.videoCallContainer.style.cssText = `
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: #000;
-                    z-index: 1;
-                    overflow: hidden;
-                `;
-
-                // 5. 创建本地视频元素
-                this.localVideoElement = document.createElement('video');
-                this.localVideoElement.autoplay = true;
-                this.localVideoElement.playsInline = true;
-                this.localVideoElement.muted = true;
-                this.localVideoElement.style.cssText = `
-                    width: 100%;
-                    height: 100%;
-                    object-fit: cover;
-                    transform: scaleX(-1);
-                `;
-                this.localVideoElement.srcObject = this.localMediaStream;
-
-                this.videoCallContainer.appendChild(this.localVideoElement);
-
-                // 6. 创建音频可视化 canvas
-                if (options.showAudioVisualizer !== false) {
-                    this.audioVisualizer = document.createElement('canvas');
-                    this.audioVisualizer.className = 'audio-visualizer';
-                    this.audioVisualizer.style.cssText = `
-                        position: absolute;
-                        bottom: 30px;
-                        left: 50%;
-                        transform: translateX(-50%);
-                        width: 120px;
-                        height: 30px;
-                        z-index: 10;
-                        pointer-events: none;
-                    `;
-                    this.audioVisualizer.width = 120;
-                    this.audioVisualizer.height = 30;
-                    this.videoCallContainer.appendChild(this.audioVisualizer);
-                }
-
-                container.insertBefore(this.videoCallContainer, container.firstChild);
-
-                // 7. 调整数字人 PiP 容器为小窗口
-                this.pipContainer.style.cssText = `
-                    position: absolute;
-                    ${posStyle.top ? `top: ${posStyle.top};` : ''}
-                    ${posStyle.bottom ? `bottom: ${posStyle.bottom};` : ''}
-                    ${posStyle.left ? `left: ${posStyle.left};` : ''}
-                    ${posStyle.right ? `right: ${posStyle.right};` : ''}
-                    width: ${pipWidth}px;
-                    height: ${pipHeight}px;
-                    border-radius: 0;
-                    overflow: hidden;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-                    z-index: 100;
-                    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-                    cursor: pointer;
-                    border: 3px solid rgba(255, 255, 255, 0.2);
-                `;
-
-                // 8. 调整数字人 canvas 尺寸
-                this.sceneManager.renderer.setSize(pipWidth, pipHeight);
-                this.sceneManager.camera.aspect = pipWidth / pipHeight;
-                this.sceneManager.camera.updateProjectionMatrix();
-
-                // 9. 添加数字人小窗口的悬停效果（保存引用以便后续移除）
-                this.pipMouseEnterHandler = () => {
-                    this.pipContainer.style.transform = 'scale(1.05)';
-                    this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
-                };
-
-                this.pipMouseLeaveHandler = () => {
-                    this.pipContainer.style.transform = 'scale(1)';
-                    this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                };
-
-                this.pipClickHandler = async (event) => {
-                    event.stopPropagation();
-                    await this.toggleWindowSize();
-                };
-
-                this.pipContainer.addEventListener('mouseenter', this.pipMouseEnterHandler);
-                this.pipContainer.addEventListener('mouseleave', this.pipMouseLeaveHandler);
-                this.pipContainer.addEventListener('click', this.pipClickHandler);
-
-                // 10. 重新启动音频可视化
-                if (options.showAudioVisualizer !== false) {
-                    this._startAudioVisualizer();
-                }
-
-                // 11. 更新状态
-                this.currentPipScale = pipScale;
-                this.cameraVideoElement = null;
-                this.cameraPipContainer = null;
+                // ===== 从 "数字人主窗口 + 摄像头小窗口" 切换到 "摄像头主窗口 + 数字人小窗口" =====
+                await this._toggleToCameraMain(pipPosition, pipScale, options);
             }
 
-            // 保存配置
-            this.currentPipPosition = options.pipPosition || this.currentPipPosition;
+            // 更新状态
+            this.currentPipScale = isCurrentlySmallWindow ? 1.0 : pipScale;
+            this.currentPipPosition = pipPosition;
             this.currentShowLocalVideo = options.showLocalVideo !== false;
             this.currentShowAudioVisualizer = options.showAudioVisualizer !== false;
 
@@ -3882,6 +3722,368 @@ class DigitalHuman extends EventEmitter {
             console.error('Failed to toggle window size:', error);
             this.emit('windowSizeToggleError', { error });
             throw error;
+        }
+    }
+
+    /**
+     * 切换到数字人主窗口（数字人小窗口 → 铺满大窗口）
+     * @private
+     */
+    async _toggleToDigitalHumanMain(pipPosition, pipScale, options) {
+        const container = this.config.container;
+
+        // 1. 停止音频可视化
+        if (this.visualizerAnimationId) {
+            cancelAnimationFrame(this.visualizerAnimationId);
+            this.visualizerAnimationId = null;
+        }
+
+        // 2. 计算transform参数
+        const containerWidth = container.offsetWidth;
+        const containerHeight = container.offsetHeight;
+        const pipWidth = containerWidth * pipScale;
+        const pipHeight = containerHeight * pipScale;
+
+        // 获取小窗口位置
+        const positions = {
+            'bottom-right': { bottom: 20, right: 20 },
+            'bottom-left': { bottom: 20, left: 20 },
+            'top-right': { top: 20, right: 20 },
+            'top-left': { top: 20, left: 20 }
+        };
+        const pos = positions[pipPosition] || positions['bottom-right'];
+
+        // 计算小窗口中心点相对于容器中心的偏移
+        let smallWindowCenterX, smallWindowCenterY;
+        if (pos.right !== undefined) {
+            smallWindowCenterX = containerWidth - pos.right - pipWidth / 2;
+        } else {
+            smallWindowCenterX = pos.left + pipWidth / 2;
+        }
+        if (pos.bottom !== undefined) {
+            smallWindowCenterY = containerHeight - pos.bottom - pipHeight / 2;
+        } else {
+            smallWindowCenterY = pos.top + pipHeight / 2;
+        }
+
+        const containerCenterX = containerWidth / 2;
+        const containerCenterY = containerHeight / 2;
+
+        const offsetX = containerCenterX - smallWindowCenterX;
+        const offsetY = containerCenterY - smallWindowCenterY;
+
+        // 3. 移除小窗口的hover事件
+        if (this.pipContainer && this.pipMouseEnterHandler) {
+            this.pipContainer.removeEventListener('mouseenter', this.pipMouseEnterHandler);
+            this.pipContainer.removeEventListener('mouseleave', this.pipMouseLeaveHandler);
+            this.pipContainer.removeEventListener('click', this.pipClickHandler);
+            this.pipMouseEnterHandler = null;
+            this.pipMouseLeaveHandler = null;
+            this.pipClickHandler = null;
+        }
+
+        // 4. 设置数字人小窗口的 transform-origin (从当前位置开始缩放)
+        this.pipContainer.style.transformOrigin = 'center center';
+
+        // 5. 准备摄像头小窗口（先隐藏在底层）
+        this.cameraPipContainer = document.createElement('div');
+        this.cameraPipContainer.className = 'digital-human-camera-pip-container';
+        const posStyle = positions[pipPosition] || positions['bottom-right'];
+        this.cameraPipContainer.style.cssText = `
+            position: absolute;
+            ${posStyle.top !== undefined ? `top: ${posStyle.top}px;` : ''}
+            ${posStyle.bottom !== undefined ? `bottom: ${posStyle.bottom}px;` : ''}
+            ${posStyle.left !== undefined ? `left: ${posStyle.left}px;` : ''}
+            ${posStyle.right !== undefined ? `right: ${posStyle.right}px;` : ''}
+            width: ${pipWidth}px;
+            height: ${pipHeight}px;
+            border-radius: 0;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            z-index: 50;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+        `;
+
+        this.cameraVideoElement = document.createElement('video');
+        this.cameraVideoElement.autoplay = true;
+        this.cameraVideoElement.playsInline = true;
+        this.cameraVideoElement.muted = true;
+        this.cameraVideoElement.style.cssText = `
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        `;
+        this.cameraVideoElement.srcObject = this.localMediaStream;
+        this.cameraPipContainer.appendChild(this.cameraVideoElement);
+        container.appendChild(this.cameraPipContainer);
+
+        // 6. 触发动画前强制reflow
+        this.pipContainer.offsetHeight;
+
+        // 7. 开始动画: 数字人小窗口铺满 + z-index提升
+        this.pipContainer.style.zIndex = '200';  // 提升到最高层
+        this.pipContainer.style.transition = 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
+
+        // 计算缩放比例 (从小窗口大小变为全屏)
+        const scaleX = containerWidth / pipWidth;
+        const scaleY = containerHeight / pipHeight;
+
+        this.pipContainer.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scaleX}, ${scaleY})`;
+
+        // 同时让摄像头小窗口从底层淡入
+        requestAnimationFrame(() => {
+            this.cameraPipContainer.style.opacity = '1';
+            this.cameraPipContainer.style.transform = 'scale(1)';
+        });
+
+        // 8. 等待动画完成
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // 9. 移除摄像头主容器
+        if (this.videoCallContainer && this.videoCallContainer.parentNode) {
+            this.videoCallContainer.parentNode.removeChild(this.videoCallContainer);
+            this.videoCallContainer = null;
+            this.localVideoElement = null;
+        }
+
+        // 10. 重置数字人容器样式为全屏（移除transform）
+        this.pipContainer.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            box-shadow: none;
+            border-radius: 0;
+            overflow: hidden;
+            z-index: 1;
+            cursor: default;
+            background: ${this.config.backgroundColor || '#1a1a2e'};
+        `;
+
+        // 11. 调整数字人 canvas 尺寸
+        this.sceneManager.renderer.setSize(containerWidth, containerHeight);
+        this.sceneManager.camera.aspect = containerWidth / containerHeight;
+        this.sceneManager.camera.updateProjectionMatrix();
+
+        // 12. 重置摄像头小窗口z-index
+        this.cameraPipContainer.style.zIndex = '200';
+
+        // 13. 添加摄像头小窗口的事件监听
+        this.cameraPipMouseEnterHandler = () => {
+            this.cameraPipContainer.style.transform = 'scale(1.05)';
+            this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+        };
+
+        this.cameraPipMouseLeaveHandler = () => {
+            this.cameraPipContainer.style.transform = 'scale(1)';
+            this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+        };
+
+        this.cameraPipClickHandler = async (event) => {
+            event.stopPropagation();
+            await this.toggleWindowSize();
+        };
+
+        this.cameraPipContainer.addEventListener('mouseenter', this.cameraPipMouseEnterHandler);
+        this.cameraPipContainer.addEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
+        this.cameraPipContainer.addEventListener('click', this.cameraPipClickHandler);
+    }
+
+    /**
+     * 切换到摄像头主窗口（摄像头小窗口 → 铺满大窗口）
+     * @private
+     */
+    async _toggleToCameraMain(pipPosition, pipScale, options) {
+        const container = this.config.container;
+        const containerWidth = container.offsetWidth;
+        const containerHeight = container.offsetHeight;
+        const pipWidth = containerWidth * pipScale;
+        const pipHeight = containerHeight * pipScale;
+
+        // 获取小窗口位置
+        const positions = {
+            'bottom-right': { bottom: 20, right: 20 },
+            'bottom-left': { bottom: 20, left: 20 },
+            'top-right': { top: 20, right: 20 },
+            'top-left': { top: 20, left: 20 }
+        };
+        const pos = positions[pipPosition] || positions['bottom-right'];
+
+        // 1. 移除摄像头小窗口的事件监听器
+        if (this.cameraPipContainer && this.cameraPipMouseEnterHandler) {
+            this.cameraPipContainer.removeEventListener('mouseenter', this.cameraPipMouseEnterHandler);
+            this.cameraPipContainer.removeEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
+            this.cameraPipContainer.removeEventListener('click', this.cameraPipClickHandler);
+            this.cameraPipMouseEnterHandler = null;
+            this.cameraPipMouseLeaveHandler = null;
+            this.cameraPipClickHandler = null;
+        }
+
+        // 2. 计算摄像头小窗口中心点相对于容器中心的偏移
+        let smallWindowCenterX, smallWindowCenterY;
+        if (pos.right !== undefined) {
+            smallWindowCenterX = containerWidth - pos.right - pipWidth / 2;
+        } else {
+            smallWindowCenterX = pos.left + pipWidth / 2;
+        }
+        if (pos.bottom !== undefined) {
+            smallWindowCenterY = containerHeight - pos.bottom - pipHeight / 2;
+        } else {
+            smallWindowCenterY = pos.top + pipHeight / 2;
+        }
+
+        const containerCenterX = containerWidth / 2;
+        const containerCenterY = containerHeight / 2;
+
+        const offsetX = containerCenterX - smallWindowCenterX;
+        const offsetY = containerCenterY - smallWindowCenterY;
+
+        // 3. 准备数字人小窗口（先隐藏）
+        const posStyle = positions[pipPosition] || positions['bottom-right'];
+        const tempPipContainer = document.createElement('div');
+        tempPipContainer.className = 'digital-human-pip-temp';
+        tempPipContainer.style.cssText = `
+            position: absolute;
+            ${posStyle.top !== undefined ? `top: ${posStyle.top}px;` : ''}
+            ${posStyle.bottom !== undefined ? `bottom: ${posStyle.bottom}px;` : ''}
+            ${posStyle.left !== undefined ? `left: ${posStyle.left}px;` : ''}
+            ${posStyle.right !== undefined ? `right: ${posStyle.right}px;` : ''}
+            width: ${pipWidth}px;
+            height: ${pipHeight}px;
+            border-radius: 0;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            z-index: 50;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+        `;
+        container.appendChild(tempPipContainer);
+
+        // 4. 触发reflow
+        this.cameraPipContainer.offsetHeight;
+
+        // 5. 开始动画: 摄像头小窗口铺满 + z-index提升
+        this.cameraPipContainer.style.zIndex = '200';
+        this.cameraPipContainer.style.transformOrigin = 'center center';
+        this.cameraPipContainer.style.transition = 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
+
+        const scaleX = containerWidth / pipWidth;
+        const scaleY = containerHeight / pipHeight;
+
+        this.cameraPipContainer.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scaleX}, ${scaleY})`;
+
+        // 同时让数字人小窗口从底层淡入
+        requestAnimationFrame(() => {
+            tempPipContainer.style.opacity = '1';
+            tempPipContainer.style.transform = 'scale(1)';
+        });
+
+        // 6. 等待动画完成
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // 7. 删除摄像头小窗口
+        if (this.cameraPipContainer && this.cameraPipContainer.parentNode) {
+            this.cameraPipContainer.parentNode.removeChild(this.cameraPipContainer);
+            this.cameraPipContainer = null;
+            this.cameraVideoElement = null;
+        }
+
+        // 8. 创建真正的摄像头主容器
+        this.videoCallContainer = document.createElement('div');
+        this.videoCallContainer.className = 'digital-human-video-call-container';
+        this.videoCallContainer.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 1;
+            overflow: hidden;
+        `;
+
+        this.localVideoElement = document.createElement('video');
+        this.localVideoElement.autoplay = true;
+        this.localVideoElement.playsInline = true;
+        this.localVideoElement.muted = true;
+        this.localVideoElement.style.cssText = `
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        `;
+        this.localVideoElement.srcObject = this.localMediaStream;
+        this.videoCallContainer.appendChild(this.localVideoElement);
+
+        // 添加音频可视化
+        if (options.showAudioVisualizer !== false) {
+            this.audioVisualizer = document.createElement('canvas');
+            this.audioVisualizer.className = 'audio-visualizer';
+            this.audioVisualizer.style.cssText = `
+                position: absolute;
+                bottom: 30px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 120px;
+                height: 30px;
+                z-index: 10;
+                pointer-events: none;
+            `;
+            this.audioVisualizer.width = 120;
+            this.audioVisualizer.height = 30;
+            this.videoCallContainer.appendChild(this.audioVisualizer);
+        }
+
+        container.insertBefore(this.videoCallContainer, container.firstChild);
+
+        // 9. 将数字人容器移动到小窗口位置（用temp容器替换）
+        const digitalHumanCanvas = this.sceneManager.renderer.domElement;
+        tempPipContainer.appendChild(digitalHumanCanvas);
+        this.pipContainer.parentNode.removeChild(this.pipContainer);
+        this.pipContainer = tempPipContainer;
+        this.pipContainer.className = 'digital-human-pip-container';
+        this.pipContainer.style.opacity = '1';
+        this.pipContainer.style.transform = 'scale(1)';
+        this.pipContainer.style.zIndex = '100';
+
+        // 10. 调整数字人 canvas 尺寸
+        this.sceneManager.renderer.setSize(pipWidth, pipHeight);
+        this.sceneManager.camera.aspect = pipWidth / pipHeight;
+        this.sceneManager.camera.updateProjectionMatrix();
+
+        // 11. 添加数字人小窗口的事件监听
+        this.pipMouseEnterHandler = () => {
+            this.pipContainer.style.transform = 'scale(1.05)';
+            this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+        };
+
+        this.pipMouseLeaveHandler = () => {
+            this.pipContainer.style.transform = 'scale(1)';
+            this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+        };
+
+        this.pipClickHandler = async (event) => {
+            event.stopPropagation();
+            await this.toggleWindowSize();
+        };
+
+        this.pipContainer.addEventListener('mouseenter', this.pipMouseEnterHandler);
+        this.pipContainer.addEventListener('mouseleave', this.pipMouseLeaveHandler);
+        this.pipContainer.addEventListener('click', this.pipClickHandler);
+
+        // 12. 重新启动音频可视化
+        if (options.showAudioVisualizer !== false) {
+            this._startAudioVisualizer();
         }
     }
 
@@ -4066,10 +4268,13 @@ class DigitalHuman extends EventEmitter {
     }
 
     /**
-     * 启动视频自动采集
+     * 启动视频自动采集（分组录制架构）
      * @param {Object} options - 配置选项
-     * @param {Function} options.onVideoCapture - 视频捕获回调 (videoBlob, metadata) => {}
-     * @param {number} [options.bufferDuration=5000] - 缓冲区时长（毫秒）
+     * @param {Function} options.onVideoCapture - 视频捕获回调 (videoGroups) => {}
+     *   - videoGroups: 视频组数组 [{ blob, duration, startTime, endTime, size, type }, ...]
+     *   - type: 'before-speaking' (说话前的 N 组) 或 'speaking' (说话期间的 1 组)
+     * @param {number} [options.maxGroups=1] - 保留的视频组数量（默认 1 组）
+     * @param {number} [options.groupDuration=5000] - 每组视频时长（默认 5000ms = 5 秒）
      * @param {number} [options.speechThreshold=40] - 说话检测阈值
      * @param {number} [options.silenceDuration=2000] - 静音持续时间（毫秒）
      * @param {number} [options.minSpeakDuration=500] - 最小说话时长（毫秒）
@@ -4166,15 +4371,15 @@ class DigitalHuman extends EventEmitter {
     }
 
     /**
-     * 获取当前缓冲区视频（最近5秒）
-     * @returns {Object|null} { blob: Blob, metadata: Object } 或 null
+     * 获取所有视频组（随时调用）
+     * @returns {Array} 视频组数组 [{ blob, duration, startTime, endTime, size, isRecording }, ...]
      */
-    getCurrentBufferVideo() {
+    getAllVideoGroups() {
         if (!this.videoAutoCaptureManager) {
-            return null;
+            return [];
         }
 
-        return this.videoAutoCaptureManager.getCurrentBufferVideo();
+        return this.videoAutoCaptureManager.getAllVideoGroups();
     }
 }
 

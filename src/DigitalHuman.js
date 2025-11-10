@@ -1114,265 +1114,20 @@ export class DigitalHuman extends EventEmitter {
         }
 
         try {
+            const pipScale = options.pipScale || 0.25;
+            const pipPosition = options.pipPosition || this.currentPipPosition || 'bottom-right';
+
             if (isCurrentlySmallWindow) {
-                // ===== 从 "摄像头主窗口" 切换到 "数字人主窗口" =====
-
-                // 1. 停止音频可视化
-                if (this.visualizerAnimationId) {
-                    cancelAnimationFrame(this.visualizerAnimationId);
-                    this.visualizerAnimationId = null;
-                }
-
-                // 2. 获取需要的元素和配置
-                const digitalHumanCanvas = this.sceneManager.renderer.domElement;
-                const pipScale = options.pipScale || 0.25;
-                const pipWidth = container.offsetWidth * pipScale;
-                const pipHeight = container.offsetHeight * pipScale;
-                const pipPosition = options.pipPosition || this.currentPipPosition || 'bottom-right';
-
-                const positions = {
-                    'bottom-right': { bottom: '20px', right: '20px' },
-                    'bottom-left': { bottom: '20px', left: '20px' },
-                    'top-right': { top: '20px', right: '20px' },
-                    'top-left': { top: '20px', left: '20px' }
-                };
-                const posStyle = positions[pipPosition] || positions['bottom-right'];
-
-                // 3. 移除数字人 PiP 容器的 hover 事件监听器（因为即将变成大窗口）
-                if (this.pipContainer && this.pipMouseEnterHandler) {
-                    this.pipContainer.removeEventListener('mouseenter', this.pipMouseEnterHandler);
-                    this.pipContainer.removeEventListener('mouseleave', this.pipMouseLeaveHandler);
-                    this.pipContainer.removeEventListener('click', this.pipClickHandler);
-                    this.pipMouseEnterHandler = null;
-                    this.pipMouseLeaveHandler = null;
-                    this.pipClickHandler = null;
-                }
-
-                // 4. 移除摄像头主容器
-                if (this.videoCallContainer && this.videoCallContainer.parentNode) {
-                    this.videoCallContainer.parentNode.removeChild(this.videoCallContainer);
-                }
-
-                // 5. 将数字人 PiP 容器改为全屏
-                this.pipContainer.style.cssText = `
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    border: none;
-                    box-shadow: none;
-                    border-radius: 0;
-                    overflow: hidden;
-                    z-index: 1;
-                    cursor: default;
-                    background: ${this.config.backgroundColor || '#1a1a2e'};
-                `;
-
-                // 5. 调整数字人 canvas 尺寸到全屏
-                this.sceneManager.renderer.setSize(container.offsetWidth, container.offsetHeight);
-                this.sceneManager.camera.aspect = container.offsetWidth / container.offsetHeight;
-                this.sceneManager.camera.updateProjectionMatrix();
-
-                // 6. 创建摄像头小窗口
-                this.cameraPipContainer = document.createElement('div');
-                this.cameraPipContainer.className = 'digital-human-camera-pip-container';
-                this.cameraPipContainer.style.cssText = `
-                    position: absolute;
-                    ${posStyle.top ? `top: ${posStyle.top};` : ''}
-                    ${posStyle.bottom ? `bottom: ${posStyle.bottom};` : ''}
-                    ${posStyle.left ? `left: ${posStyle.left};` : ''}
-                    ${posStyle.right ? `right: ${posStyle.right};` : ''}
-                    width: ${pipWidth}px;
-                    height: ${pipHeight}px;
-                    border-radius: 0;
-                    overflow: hidden;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-                    z-index: 200;
-                    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-                    cursor: pointer;
-                    border: 3px solid rgba(255, 255, 255, 0.2);
-                `;
-
-                // 7. 创建摄像头视频元素
-                this.cameraVideoElement = document.createElement('video');
-                this.cameraVideoElement.autoplay = true;
-                this.cameraVideoElement.playsInline = true;
-                this.cameraVideoElement.muted = true;
-                this.cameraVideoElement.style.cssText = `
-                    width: 100%;
-                    height: 100%;
-                    object-fit: cover;
-                    transform: scaleX(-1);
-                `;
-                this.cameraVideoElement.srcObject = this.localMediaStream;
-
-                this.cameraPipContainer.appendChild(this.cameraVideoElement);
-                container.appendChild(this.cameraPipContainer);
-
-                // 8. 添加悬停效果（保存引用以便后续移除）
-                this.cameraPipMouseEnterHandler = () => {
-                    this.cameraPipContainer.style.transform = 'scale(1.05)';
-                    this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
-                };
-
-                this.cameraPipMouseLeaveHandler = () => {
-                    this.cameraPipContainer.style.transform = 'scale(1)';
-                    this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                };
-
-                this.cameraPipClickHandler = async (event) => {
-                    event.stopPropagation();
-                    await this.toggleWindowSize();
-                };
-
-                this.cameraPipContainer.addEventListener('mouseenter', this.cameraPipMouseEnterHandler);
-                this.cameraPipContainer.addEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
-                this.cameraPipContainer.addEventListener('click', this.cameraPipClickHandler);
-
-                // 10. 更新状态
-                this.currentPipScale = 1.0;
-                this.localVideoElement = null;
-                this.videoCallContainer = null;
-
+                // ===== 从 "摄像头主窗口 + 数字人小窗口" 切换到 "数字人主窗口 + 摄像头小窗口" =====
+                await this._toggleToDigitalHumanMain(pipPosition, pipScale, options);
             } else {
-                // ===== 从 "数字人主窗口" 切换到 "摄像头主窗口" =====
-
-                // 1. 移除摄像头小窗口的事件监听器
-                if (this.cameraPipContainer && this.cameraPipMouseEnterHandler) {
-                    this.cameraPipContainer.removeEventListener('mouseenter', this.cameraPipMouseEnterHandler);
-                    this.cameraPipContainer.removeEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
-                    this.cameraPipContainer.removeEventListener('click', this.cameraPipClickHandler);
-                    this.cameraPipMouseEnterHandler = null;
-                    this.cameraPipMouseLeaveHandler = null;
-                    this.cameraPipClickHandler = null;
-                }
-
-                // 2. 获取配置
-                const pipScale = options.pipScale || 0.25;
-                const pipWidth = container.offsetWidth * pipScale;
-                const pipHeight = container.offsetHeight * pipScale;
-                const pipPosition = options.pipPosition || this.currentPipPosition || 'bottom-right';
-
-                const positions = {
-                    'bottom-right': { bottom: '20px', right: '20px' },
-                    'bottom-left': { bottom: '20px', left: '20px' },
-                    'top-right': { top: '20px', right: '20px' },
-                    'top-left': { top: '20px', left: '20px' }
-                };
-                const posStyle = positions[pipPosition] || positions['bottom-right'];
-
-                // 3. 移除摄像头小窗口
-                if (this.cameraPipContainer && this.cameraPipContainer.parentNode) {
-                    this.cameraPipContainer.parentNode.removeChild(this.cameraPipContainer);
-                }
-
-                // 4. 创建摄像头主容器
-                this.videoCallContainer = document.createElement('div');
-                this.videoCallContainer.className = 'digital-human-video-call-container';
-                this.videoCallContainer.style.cssText = `
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: #000;
-                    z-index: 1;
-                    overflow: hidden;
-                `;
-
-                // 5. 创建本地视频元素
-                this.localVideoElement = document.createElement('video');
-                this.localVideoElement.autoplay = true;
-                this.localVideoElement.playsInline = true;
-                this.localVideoElement.muted = true;
-                this.localVideoElement.style.cssText = `
-                    width: 100%;
-                    height: 100%;
-                    object-fit: cover;
-                    transform: scaleX(-1);
-                `;
-                this.localVideoElement.srcObject = this.localMediaStream;
-
-                this.videoCallContainer.appendChild(this.localVideoElement);
-
-                // 6. 创建音频可视化 canvas
-                if (options.showAudioVisualizer !== false) {
-                    this.audioVisualizer = document.createElement('canvas');
-                    this.audioVisualizer.className = 'audio-visualizer';
-                    this.audioVisualizer.style.cssText = `
-                        position: absolute;
-                        bottom: 30px;
-                        left: 50%;
-                        transform: translateX(-50%);
-                        width: 120px;
-                        height: 30px;
-                        z-index: 10;
-                        pointer-events: none;
-                    `;
-                    this.audioVisualizer.width = 120;
-                    this.audioVisualizer.height = 30;
-                    this.videoCallContainer.appendChild(this.audioVisualizer);
-                }
-
-                container.insertBefore(this.videoCallContainer, container.firstChild);
-
-                // 7. 调整数字人 PiP 容器为小窗口
-                this.pipContainer.style.cssText = `
-                    position: absolute;
-                    ${posStyle.top ? `top: ${posStyle.top};` : ''}
-                    ${posStyle.bottom ? `bottom: ${posStyle.bottom};` : ''}
-                    ${posStyle.left ? `left: ${posStyle.left};` : ''}
-                    ${posStyle.right ? `right: ${posStyle.right};` : ''}
-                    width: ${pipWidth}px;
-                    height: ${pipHeight}px;
-                    border-radius: 0;
-                    overflow: hidden;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-                    z-index: 100;
-                    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-                    cursor: pointer;
-                    border: 3px solid rgba(255, 255, 255, 0.2);
-                `;
-
-                // 8. 调整数字人 canvas 尺寸
-                this.sceneManager.renderer.setSize(pipWidth, pipHeight);
-                this.sceneManager.camera.aspect = pipWidth / pipHeight;
-                this.sceneManager.camera.updateProjectionMatrix();
-
-                // 9. 添加数字人小窗口的悬停效果（保存引用以便后续移除）
-                this.pipMouseEnterHandler = () => {
-                    this.pipContainer.style.transform = 'scale(1.05)';
-                    this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
-                };
-
-                this.pipMouseLeaveHandler = () => {
-                    this.pipContainer.style.transform = 'scale(1)';
-                    this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                };
-
-                this.pipClickHandler = async (event) => {
-                    event.stopPropagation();
-                    await this.toggleWindowSize();
-                };
-
-                this.pipContainer.addEventListener('mouseenter', this.pipMouseEnterHandler);
-                this.pipContainer.addEventListener('mouseleave', this.pipMouseLeaveHandler);
-                this.pipContainer.addEventListener('click', this.pipClickHandler);
-
-                // 10. 重新启动音频可视化
-                if (options.showAudioVisualizer !== false) {
-                    this._startAudioVisualizer();
-                }
-
-                // 11. 更新状态
-                this.currentPipScale = pipScale;
-                this.cameraVideoElement = null;
-                this.cameraPipContainer = null;
+                // ===== 从 "数字人主窗口 + 摄像头小窗口" 切换到 "摄像头主窗口 + 数字人小窗口" =====
+                await this._toggleToCameraMain(pipPosition, pipScale, options);
             }
 
-            // 保存配置
-            this.currentPipPosition = options.pipPosition || this.currentPipPosition;
+            // 更新状态
+            this.currentPipScale = isCurrentlySmallWindow ? 1.0 : pipScale;
+            this.currentPipPosition = pipPosition;
             this.currentShowLocalVideo = options.showLocalVideo !== false;
             this.currentShowAudioVisualizer = options.showAudioVisualizer !== false;
 
@@ -1395,6 +1150,368 @@ export class DigitalHuman extends EventEmitter {
             console.error('Failed to toggle window size:', error);
             this.emit('windowSizeToggleError', { error });
             throw error;
+        }
+    }
+
+    /**
+     * 切换到数字人主窗口（数字人小窗口 → 铺满大窗口）
+     * @private
+     */
+    async _toggleToDigitalHumanMain(pipPosition, pipScale, options) {
+        const container = this.config.container;
+
+        // 1. 停止音频可视化
+        if (this.visualizerAnimationId) {
+            cancelAnimationFrame(this.visualizerAnimationId);
+            this.visualizerAnimationId = null;
+        }
+
+        // 2. 计算transform参数
+        const containerWidth = container.offsetWidth;
+        const containerHeight = container.offsetHeight;
+        const pipWidth = containerWidth * pipScale;
+        const pipHeight = containerHeight * pipScale;
+
+        // 获取小窗口位置
+        const positions = {
+            'bottom-right': { bottom: 20, right: 20 },
+            'bottom-left': { bottom: 20, left: 20 },
+            'top-right': { top: 20, right: 20 },
+            'top-left': { top: 20, left: 20 }
+        };
+        const pos = positions[pipPosition] || positions['bottom-right'];
+
+        // 计算小窗口中心点相对于容器中心的偏移
+        let smallWindowCenterX, smallWindowCenterY;
+        if (pos.right !== undefined) {
+            smallWindowCenterX = containerWidth - pos.right - pipWidth / 2;
+        } else {
+            smallWindowCenterX = pos.left + pipWidth / 2;
+        }
+        if (pos.bottom !== undefined) {
+            smallWindowCenterY = containerHeight - pos.bottom - pipHeight / 2;
+        } else {
+            smallWindowCenterY = pos.top + pipHeight / 2;
+        }
+
+        const containerCenterX = containerWidth / 2;
+        const containerCenterY = containerHeight / 2;
+
+        const offsetX = containerCenterX - smallWindowCenterX;
+        const offsetY = containerCenterY - smallWindowCenterY;
+
+        // 3. 移除小窗口的hover事件
+        if (this.pipContainer && this.pipMouseEnterHandler) {
+            this.pipContainer.removeEventListener('mouseenter', this.pipMouseEnterHandler);
+            this.pipContainer.removeEventListener('mouseleave', this.pipMouseLeaveHandler);
+            this.pipContainer.removeEventListener('click', this.pipClickHandler);
+            this.pipMouseEnterHandler = null;
+            this.pipMouseLeaveHandler = null;
+            this.pipClickHandler = null;
+        }
+
+        // 4. 设置数字人小窗口的 transform-origin (从当前位置开始缩放)
+        this.pipContainer.style.transformOrigin = 'center center';
+
+        // 5. 准备摄像头小窗口（先隐藏在底层）
+        this.cameraPipContainer = document.createElement('div');
+        this.cameraPipContainer.className = 'digital-human-camera-pip-container';
+        const posStyle = positions[pipPosition] || positions['bottom-right'];
+        this.cameraPipContainer.style.cssText = `
+            position: absolute;
+            ${posStyle.top !== undefined ? `top: ${posStyle.top}px;` : ''}
+            ${posStyle.bottom !== undefined ? `bottom: ${posStyle.bottom}px;` : ''}
+            ${posStyle.left !== undefined ? `left: ${posStyle.left}px;` : ''}
+            ${posStyle.right !== undefined ? `right: ${posStyle.right}px;` : ''}
+            width: ${pipWidth}px;
+            height: ${pipHeight}px;
+            border-radius: 0;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            z-index: 50;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+        `;
+
+        this.cameraVideoElement = document.createElement('video');
+        this.cameraVideoElement.autoplay = true;
+        this.cameraVideoElement.playsInline = true;
+        this.cameraVideoElement.muted = true;
+        this.cameraVideoElement.style.cssText = `
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        `;
+        this.cameraVideoElement.srcObject = this.localMediaStream;
+        this.cameraPipContainer.appendChild(this.cameraVideoElement);
+        container.appendChild(this.cameraPipContainer);
+
+        // 6. 触发动画前强制reflow
+        this.pipContainer.offsetHeight;
+
+        // 7. 开始动画: 数字人小窗口铺满 + z-index提升
+        this.pipContainer.style.zIndex = '200';  // 提升到最高层
+        this.pipContainer.style.transition = 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
+
+        // 计算缩放比例 (从小窗口大小变为全屏)
+        const scaleX = containerWidth / pipWidth;
+        const scaleY = containerHeight / pipHeight;
+
+        this.pipContainer.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scaleX}, ${scaleY})`;
+
+        // 同时让摄像头小窗口从底层淡入
+        requestAnimationFrame(() => {
+            this.cameraPipContainer.style.opacity = '1';
+            this.cameraPipContainer.style.transform = 'scale(1)';
+        });
+
+        // 8. 等待动画完成
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // 9. 移除摄像头主容器
+        if (this.videoCallContainer && this.videoCallContainer.parentNode) {
+            this.videoCallContainer.parentNode.removeChild(this.videoCallContainer);
+            this.videoCallContainer = null;
+            this.localVideoElement = null;
+        }
+
+        // 10. 重置数字人容器样式为全屏（移除transform）
+        this.pipContainer.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            box-shadow: none;
+            border-radius: 0;
+            overflow: hidden;
+            z-index: 1;
+            cursor: default;
+            background: ${this.config.backgroundColor || '#1a1a2e'};
+        `;
+
+        // 11. 调整数字人 canvas 尺寸
+        this.sceneManager.renderer.setSize(containerWidth, containerHeight);
+        this.sceneManager.camera.aspect = containerWidth / containerHeight;
+        this.sceneManager.camera.updateProjectionMatrix();
+
+        // 12. 重置摄像头小窗口z-index
+        this.cameraPipContainer.style.zIndex = '200';
+
+        // 13. 添加摄像头小窗口的事件监听
+        this.cameraPipMouseEnterHandler = () => {
+            this.cameraPipContainer.style.transform = 'scale(1.05)';
+            this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+        };
+
+        this.cameraPipMouseLeaveHandler = () => {
+            this.cameraPipContainer.style.transform = 'scale(1)';
+            this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+        };
+
+        this.cameraPipClickHandler = async (event) => {
+            event.stopPropagation();
+            await this.toggleWindowSize();
+        };
+
+        this.cameraPipContainer.addEventListener('mouseenter', this.cameraPipMouseEnterHandler);
+        this.cameraPipContainer.addEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
+        this.cameraPipContainer.addEventListener('click', this.cameraPipClickHandler);
+    }
+
+    /**
+     * 切换到摄像头主窗口（摄像头小窗口 → 铺满大窗口）
+     * @private
+     */
+    async _toggleToCameraMain(pipPosition, pipScale, options) {
+        const container = this.config.container;
+        const containerWidth = container.offsetWidth;
+        const containerHeight = container.offsetHeight;
+        const pipWidth = containerWidth * pipScale;
+        const pipHeight = containerHeight * pipScale;
+
+        // 获取小窗口位置
+        const positions = {
+            'bottom-right': { bottom: 20, right: 20 },
+            'bottom-left': { bottom: 20, left: 20 },
+            'top-right': { top: 20, right: 20 },
+            'top-left': { top: 20, left: 20 }
+        };
+        const pos = positions[pipPosition] || positions['bottom-right'];
+
+        // 1. 移除摄像头小窗口的事件监听器
+        if (this.cameraPipContainer && this.cameraPipMouseEnterHandler) {
+            this.cameraPipContainer.removeEventListener('mouseenter', this.cameraPipMouseEnterHandler);
+            this.cameraPipContainer.removeEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
+            this.cameraPipContainer.removeEventListener('click', this.cameraPipClickHandler);
+            this.cameraPipMouseEnterHandler = null;
+            this.cameraPipMouseLeaveHandler = null;
+            this.cameraPipClickHandler = null;
+        }
+
+        // 2. 计算摄像头小窗口中心点相对于容器中心的偏移
+        let smallWindowCenterX, smallWindowCenterY;
+        if (pos.right !== undefined) {
+            smallWindowCenterX = containerWidth - pos.right - pipWidth / 2;
+        } else {
+            smallWindowCenterX = pos.left + pipWidth / 2;
+        }
+        if (pos.bottom !== undefined) {
+            smallWindowCenterY = containerHeight - pos.bottom - pipHeight / 2;
+        } else {
+            smallWindowCenterY = pos.top + pipHeight / 2;
+        }
+
+        const containerCenterX = containerWidth / 2;
+        const containerCenterY = containerHeight / 2;
+
+        const offsetX = containerCenterX - smallWindowCenterX;
+        const offsetY = containerCenterY - smallWindowCenterY;
+
+        // 3. 准备数字人小窗口（先隐藏）
+        const posStyle = positions[pipPosition] || positions['bottom-right'];
+        const tempPipContainer = document.createElement('div');
+        tempPipContainer.className = 'digital-human-pip-temp';
+        tempPipContainer.style.cssText = `
+            position: absolute;
+            ${posStyle.top !== undefined ? `top: ${posStyle.top}px;` : ''}
+            ${posStyle.bottom !== undefined ? `bottom: ${posStyle.bottom}px;` : ''}
+            ${posStyle.left !== undefined ? `left: ${posStyle.left}px;` : ''}
+            ${posStyle.right !== undefined ? `right: ${posStyle.right}px;` : ''}
+            width: ${pipWidth}px;
+            height: ${pipHeight}px;
+            border-radius: 0;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            z-index: 50;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+        `;
+        container.appendChild(tempPipContainer);
+
+        // 4. 触发reflow
+        this.cameraPipContainer.offsetHeight;
+
+        // 5. 开始动画: 摄像头小窗口铺满 + z-index提升
+        this.cameraPipContainer.style.zIndex = '200';
+        this.cameraPipContainer.style.transformOrigin = 'center center';
+        this.cameraPipContainer.style.transition = 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
+
+        const scaleX = containerWidth / pipWidth;
+        const scaleY = containerHeight / pipHeight;
+
+        this.cameraPipContainer.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scaleX}, ${scaleY})`;
+
+        // 同时让数字人小窗口从底层淡入
+        requestAnimationFrame(() => {
+            tempPipContainer.style.opacity = '1';
+            tempPipContainer.style.transform = 'scale(1)';
+        });
+
+        // 6. 等待动画完成
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // 7. 删除摄像头小窗口
+        if (this.cameraPipContainer && this.cameraPipContainer.parentNode) {
+            this.cameraPipContainer.parentNode.removeChild(this.cameraPipContainer);
+            this.cameraPipContainer = null;
+            this.cameraVideoElement = null;
+        }
+
+        // 8. 创建真正的摄像头主容器
+        this.videoCallContainer = document.createElement('div');
+        this.videoCallContainer.className = 'digital-human-video-call-container';
+        this.videoCallContainer.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 1;
+            overflow: hidden;
+        `;
+
+        this.localVideoElement = document.createElement('video');
+        this.localVideoElement.autoplay = true;
+        this.localVideoElement.playsInline = true;
+        this.localVideoElement.muted = true;
+        this.localVideoElement.style.cssText = `
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        `;
+        this.localVideoElement.srcObject = this.localMediaStream;
+        this.videoCallContainer.appendChild(this.localVideoElement);
+
+        // 添加音频可视化
+        if (options.showAudioVisualizer !== false) {
+            this.audioVisualizer = document.createElement('canvas');
+            this.audioVisualizer.className = 'audio-visualizer';
+            this.audioVisualizer.style.cssText = `
+                position: absolute;
+                bottom: 30px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 120px;
+                height: 30px;
+                z-index: 10;
+                pointer-events: none;
+            `;
+            this.audioVisualizer.width = 120;
+            this.audioVisualizer.height = 30;
+            this.videoCallContainer.appendChild(this.audioVisualizer);
+        }
+
+        container.insertBefore(this.videoCallContainer, container.firstChild);
+
+        // 9. 将数字人容器移动到小窗口位置（用temp容器替换）
+        const digitalHumanCanvas = this.sceneManager.renderer.domElement;
+        tempPipContainer.appendChild(digitalHumanCanvas);
+        this.pipContainer.parentNode.removeChild(this.pipContainer);
+        this.pipContainer = tempPipContainer;
+        this.pipContainer.className = 'digital-human-pip-container';
+        this.pipContainer.style.opacity = '1';
+        this.pipContainer.style.transform = 'scale(1)';
+        this.pipContainer.style.zIndex = '100';
+
+        // 10. 调整数字人 canvas 尺寸
+        this.sceneManager.renderer.setSize(pipWidth, pipHeight);
+        this.sceneManager.camera.aspect = pipWidth / pipHeight;
+        this.sceneManager.camera.updateProjectionMatrix();
+
+        // 11. 添加数字人小窗口的事件监听
+        this.pipMouseEnterHandler = () => {
+            this.pipContainer.style.transform = 'scale(1.05)';
+            this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+        };
+
+        this.pipMouseLeaveHandler = () => {
+            this.pipContainer.style.transform = 'scale(1)';
+            this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+        };
+
+        this.pipClickHandler = async (event) => {
+            event.stopPropagation();
+            await this.toggleWindowSize();
+        };
+
+        this.pipContainer.addEventListener('mouseenter', this.pipMouseEnterHandler);
+        this.pipContainer.addEventListener('mouseleave', this.pipMouseLeaveHandler);
+        this.pipContainer.addEventListener('click', this.pipClickHandler);
+
+        // 12. 重新启动音频可视化
+        if (options.showAudioVisualizer !== false) {
+            this._startAudioVisualizer();
         }
     }
 
@@ -1579,10 +1696,13 @@ export class DigitalHuman extends EventEmitter {
     }
 
     /**
-     * 启动视频自动采集
+     * 启动视频自动采集（分组录制架构）
      * @param {Object} options - 配置选项
-     * @param {Function} options.onVideoCapture - 视频捕获回调 (videoBlob, metadata) => {}
-     * @param {number} [options.bufferDuration=5000] - 缓冲区时长（毫秒）
+     * @param {Function} options.onVideoCapture - 视频捕获回调 (videoGroups) => {}
+     *   - videoGroups: 视频组数组 [{ blob, duration, startTime, endTime, size, type }, ...]
+     *   - type: 'before-speaking' (说话前的 N 组) 或 'speaking' (说话期间的 1 组)
+     * @param {number} [options.maxGroups=1] - 保留的视频组数量（默认 1 组）
+     * @param {number} [options.groupDuration=5000] - 每组视频时长（默认 5000ms = 5 秒）
      * @param {number} [options.speechThreshold=40] - 说话检测阈值
      * @param {number} [options.silenceDuration=2000] - 静音持续时间（毫秒）
      * @param {number} [options.minSpeakDuration=500] - 最小说话时长（毫秒）
@@ -1679,14 +1799,14 @@ export class DigitalHuman extends EventEmitter {
     }
 
     /**
-     * 获取当前缓冲区视频（最近5秒）
-     * @returns {Object|null} { blob: Blob, metadata: Object } 或 null
+     * 获取所有视频组（随时调用）
+     * @returns {Array} 视频组数组 [{ blob, duration, startTime, endTime, size, isRecording }, ...]
      */
-    getCurrentBufferVideo() {
+    getAllVideoGroups() {
         if (!this.videoAutoCaptureManager) {
-            return null;
+            return [];
         }
 
-        return this.videoAutoCaptureManager.getCurrentBufferVideo();
+        return this.videoAutoCaptureManager.getAllVideoGroups();
     }
 }

@@ -2074,7 +2074,7 @@ class CircularVideoBuffer {
 
     /**
      * 获取缓冲区的时长（毫秒）
-     * 基于实际的媒体片段时间戳计算
+     * 基于实际保留的数据片段计算
      * @returns {number}
      */
     getDuration() {
@@ -2082,8 +2082,19 @@ class CircularVideoBuffer {
             return 0;
         }
 
-        // 计算最后一个片段和第一个片段的时间差
-        const duration = this.timestamps[this.timestamps.length - 1] - this.timestamps[0];
+        if (this.timestamps.length === 1) {
+            return 0; // 只有第一个chunk，时长为0
+        }
+
+        // 如果第一个chunk还在，从第二个chunk开始计算实际数据时长
+        const startIdx = (this.timestamps[0] === this.firstTimestamp) ? 1 : 0;
+
+        if (startIdx >= this.timestamps.length) {
+            return 0;
+        }
+
+        // 计算实际媒体数据的时长（排除第一个初始化chunk）
+        const duration = this.timestamps[this.timestamps.length - 1] - this.timestamps[startIdx];
 
         // 时长不应超过最大缓冲时长
         return Math.min(duration, this.maxDuration);

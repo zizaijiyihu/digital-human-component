@@ -1462,11 +1462,21 @@ export class DigitalHuman extends EventEmitter {
             ctx.beginPath();
             ctx.lineWidth = 2.5;
 
-            // 创建渐变色（浅蓝色渐变）
+            // 根据录制状态选择颜色
+            const isRecording = canvas.dataset.recording === 'true';
             const gradient = ctx.createLinearGradient(0, 0, width, 0);
-            gradient.addColorStop(0, 'rgba(135, 206, 250, 0.3)');
-            gradient.addColorStop(0.5, 'rgba(100, 149, 237, 0.7)');
-            gradient.addColorStop(1, 'rgba(135, 206, 250, 0.3)');
+
+            if (isRecording) {
+                // 录制时：绿色渐变
+                gradient.addColorStop(0, 'rgba(34, 197, 94, 0.3)');   // 浅绿
+                gradient.addColorStop(0.5, 'rgba(22, 163, 74, 0.7)'); // 中绿
+                gradient.addColorStop(1, 'rgba(34, 197, 94, 0.3)');   // 浅绿
+            } else {
+                // 正常时：蓝色渐变
+                gradient.addColorStop(0, 'rgba(135, 206, 250, 0.3)');
+                gradient.addColorStop(0.5, 'rgba(100, 149, 237, 0.7)');
+                gradient.addColorStop(1, 'rgba(135, 206, 250, 0.3)');
+            }
 
             ctx.strokeStyle = gradient;
             ctx.lineCap = 'round';

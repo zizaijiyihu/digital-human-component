@@ -162,7 +162,8 @@
                 <button id="btnDownloadVideo" disabled>💾 下载最后一个视频</button>
                 <div style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 8px;">
                     💡 自动采集【最近5秒+说话期间】的视频，需先进入视频通话模式<br>
-                    📊 采集状态：<span id="captureStatus">未启动</span>
+                    📊 采集状态：<span id="captureStatus">未启动</span><br>
+                    🎚️ 音频能量：<span id="audioEnergy">--</span> / 阈值：<span id="energyThreshold">--</span>
                 </div>
             </div>
 
@@ -513,8 +514,11 @@
         const btnDisableCapture = document.getElementById('btnDisableCapture');
         const btnDownloadVideo = document.getElementById('btnDownloadVideo');
         const captureStatus = document.getElementById('captureStatus');
+        const audioEnergy = document.getElementById('audioEnergy');
+        const energyThreshold = document.getElementById('energyThreshold');
 
         let lastCapturedVideo = null; // 保存最后一个采集的视频
+        let energyMonitorInterval = null; // 能量监控定时器
 
         /**
          * 启动视频自动采集
@@ -523,35 +527,42 @@
             try {
                 await avatar.enableVideoAutoCapture({
                     bufferDuration: 5000,          // 5秒缓冲
-                    speechThreshold: 40,           // 阈值 40
+                    speechThreshold: 30,           // 阈值 30（降低以提高灵敏度）
                     silenceDuration: 2000,         // 静音 2 秒后结束
                     minSpeakDuration: 500,         // 最小说话时长 500ms
                     maxRecordDuration: 300000,     // 最大录制 5 分钟
 
                     onVideoCapture: (videoBlob, metadata) => {
-                        console.log('📹 捕获到视频:', metadata);
+                        console.log('📹 捕获到完整录制视频:', metadata);
                         lastCapturedVideo = {
                             blob: videoBlob,
                             metadata: metadata
                         };
 
-                        // 启用下载按钮
-                        btnDownloadVideo.disabled = false;
-
                         // 更新状态
-                        updateStatus(`✅ 捕获到 ${(metadata.duration / 1000).toFixed(1)}秒 的视频 (${(videoBlob.size / 1024 / 1024).toFixed(2)} MB)`);
+                        updateStatus(`✅ 捕获到完整录制 ${(metadata.duration / 1000).toFixed(1)}秒 的视频 (${(videoBlob.size / 1024 / 1024).toFixed(2)} MB)`);
                     },
 
                     onSpeakingStart: () => {
-                        console.log('🗣️ 检测到说话开始');
+                        console.log('🗣️ 检测到说话开始 - 开始完整录制');
                         captureStatus.textContent = '🔴 正在录制...';
                         captureStatus.style.color = '#ff4444';
+
+                        // 将音频可视化变成绿色
+                        if (avatar.audioVisualizer) {
+                            avatar.audioVisualizer.dataset.recording = 'true';
+                        }
                     },
 
                     onSpeakingEnd: () => {
-                        console.log('🔇 检测到说话结束');
+                        console.log('🔇 检测到说话结束 - 停止完整录制');
                         captureStatus.textContent = '⏸️ 待机中（循环缓冲）';
                         captureStatus.style.color = '#44ff44';
+
+                        // 将音频可视化恢复蓝色
+                        if (avatar.audioVisualizer) {
+                            avatar.audioVisualizer.dataset.recording = 'false';
+                        }
                     },
 
                     onError: (error) => {
@@ -567,8 +578,24 @@
                 captureStatus.textContent = '⏸️ 待机中（循环缓冲）';
                 captureStatus.style.color = '#44ff44';
 
+                // 启动能量监控
+                energyMonitorInterval = setInterval(() => {
+                    const status = avatar.getVideoAutoCaptureStatus();
+                    if (status) {
+                        audioEnergy.textContent = status.currentEnergy.toFixed(1);
+                        energyThreshold.textContent = status.threshold;
+
+                        // 根据是否超过阈值改变颜色
+                        if (status.currentEnergy > status.threshold) {
+                            audioEnergy.style.color = '#44ff44'; // 绿色：检测到声音
+                        } else {
+                            audioEnergy.style.color = 'rgba(255,255,255,0.7)'; // 白色：静音
+                        }
+                    }
+                }, 100); // 每100ms更新一次
+
                 updateStatus('✅ 视频自动采集已启动，可随时下载视频');
-                console.log('✅ 视频自动采集已启动');
+                console.log('✅ 视频自动采集已启动，阈值: 30');
 
             } catch (error) {
                 console.error('启动视频采集失败:', error);
@@ -583,12 +610,20 @@
         btnDisableCapture.addEventListener('click', () => {
             avatar.disableVideoAutoCapture();
 
+            // 停止能量监控
+            if (energyMonitorInterval) {
+                clearInterval(energyMonitorInterval);
+                energyMonitorInterval = null;
+            }
+
             // 更新 UI
             btnEnableCapture.disabled = false;
             btnDisableCapture.disabled = true;
             btnDownloadVideo.disabled = true; // 停止采集后禁用下载按钮
             captureStatus.textContent = '未启动';
             captureStatus.style.color = 'rgba(255,255,255,0.7)';
+            audioEnergy.textContent = '--';
+            energyThreshold.textContent = '--';
 
             updateStatus('⏹ 视频自动采集已停止');
             console.log('⏹ 视频自动采集已停止');

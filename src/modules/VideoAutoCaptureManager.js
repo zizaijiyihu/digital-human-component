@@ -315,7 +315,10 @@ export class VideoAutoCaptureManager {
             bufferChunks: this.circularBuffer ? this.circularBuffer.getChunkCount() : 0,
             bufferSize: this.circularBuffer ? this.circularBuffer.getTotalSize() : 0,
             recordingDuration: this.isRecording ? Date.now() - this.recordingStartTime : 0,
-            recordingChunks: this.recordingChunks.length
+            recordingChunks: this.recordingChunks.length,
+            currentEnergy: this.speechDetector ? this.speechDetector.getCurrentEnergy() : 0,
+            threshold: this.config.speechThreshold,
+            isSpeaking: this.speechDetector ? this.speechDetector.getSpeakingState() : false
         };
     }
 

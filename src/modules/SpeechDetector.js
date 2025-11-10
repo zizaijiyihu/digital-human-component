@@ -7,7 +7,7 @@ export class SpeechDetector {
         this.analyser = analyser;
 
         // 配置参数
-        this.threshold = options.threshold || 40;                    // 能量阈值（默认 40）
+        this.threshold = options.threshold || 30;                    // 能量阈值（默认 30，降低以提高灵敏度）
         this.silenceDuration = options.silenceDuration || 2000;      // 静音持续时间（默认 2000ms）
         this.minSpeakDuration = options.minSpeakDuration || 500;     // 最小说话时长（默认 500ms）
 
@@ -85,6 +85,12 @@ export class SpeechDetector {
         const energy = this._getAudioEnergy();
         const isCurrentlySpeaking = energy > this.threshold;
 
+        // 每秒打印一次音频能量（用于调试）
+        if (this.lastLogTime === undefined || now - this.lastLogTime > 1000) {
+            console.log(`[VAD] 音频能量: ${energy.toFixed(1)} (阈值: ${this.threshold}) - ${isCurrentlySpeaking ? '🟢 检测到声音' : '⚪ 静音'}`);
+            this.lastLogTime = now;
+        }
+
         if (isCurrentlySpeaking) {
             // 检测到声音
             this.lastSpeechTime = now;
@@ -93,6 +99,7 @@ export class SpeechDetector {
                 // 从静音到说话
                 if (this.speechStartTime === 0) {
                     this.speechStartTime = now;
+                    console.log(`[VAD] 🎤 开始检测声音，等待持续 ${this.minSpeakDuration}ms...`);
                 }
 
                 // 持续说话超过最小时长，触发开始事件
@@ -100,6 +107,8 @@ export class SpeechDetector {
                 if (speakDuration >= this.minSpeakDuration) {
                     this.isSpeaking = true;
                     this.silenceStartTime = 0;
+
+                    console.log(`[VAD] 🗣️ 说话开始！持续时长: ${speakDuration}ms`);
 
                     if (this.onSpeakingStart) {
                         this.onSpeakingStart();
@@ -112,6 +121,7 @@ export class SpeechDetector {
                 // 从说话到静音
                 if (this.silenceStartTime === 0) {
                     this.silenceStartTime = now;
+                    console.log(`[VAD] 🔇 检测到静音，等待持续 ${this.silenceDuration}ms...`);
                 }
 
                 // 持续静音超过阈值，触发结束事件
@@ -121,12 +131,17 @@ export class SpeechDetector {
                     this.speechStartTime = 0;
                     this.silenceStartTime = 0;
 
+                    console.log(`[VAD] ⏹️ 说话结束！静音持续: ${silenceDuration}ms`);
+
                     if (this.onSpeakingEnd) {
                         this.onSpeakingEnd();
                     }
                 }
             } else {
                 // 持续静音，重置说话开始时间
+                if (this.speechStartTime !== 0) {
+                    console.log(`[VAD] ⚠️ 声音持续时间不足 ${this.minSpeakDuration}ms，已重置`);
+                }
                 this.speechStartTime = 0;
             }
         }
@@ -155,6 +170,14 @@ export class SpeechDetector {
      */
     getSpeakingState() {
         return this.isSpeaking;
+    }
+
+    /**
+     * 获取当前音频能量
+     * @returns {number} 当前能量值 (0-255)
+     */
+    getCurrentEnergy() {
+        return this._getAudioEnergy();
     }
 
     /**

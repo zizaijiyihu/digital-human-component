@@ -97,6 +97,24 @@ export class DigitalHuman extends EventEmitter {
         this.streamAudioContext = null;
         this.streamAnalyser = null;
 
+        // 视频通话模式相关
+        this.isVideoCallMode = false;
+        this.localMediaStream = null;
+        this.localVideoElement = null;
+        this.videoCallContainer = null;
+        this.pipContainer = null;
+        this.audioVisualizer = null;
+        this.visualizerAnimationId = null;
+        this.originalContainerStyle = null;
+
+        // 事件监听器引用（用于后续移除）
+        this.pipMouseEnterHandler = null;
+        this.pipMouseLeaveHandler = null;
+        this.pipClickHandler = null;
+        this.cameraPipMouseEnterHandler = null;
+        this.cameraPipMouseLeaveHandler = null;
+        this.cameraPipClickHandler = null;
+
         // 资源引用
         this.avatar = null;
         this.morphTargetMesh = null;
@@ -120,6 +138,9 @@ export class DigitalHuman extends EventEmitter {
             if (!container) {
                 throw new Error('Container not found');
             }
+
+            // 保存实际的 DOM 元素，供后续方法使用（如视频通话模式）
+            this.config.container = container;
 
             this.sceneManager = new SceneManager(container, {
                 width: this.config.width,
@@ -663,11 +684,877 @@ export class DigitalHuman extends EventEmitter {
 
         this.streamAnalyser = null;
 
+        // 清理视频通话模式资源
+        if (this.isVideoCallMode) {
+            this.exitVideoCallMode();
+        }
+
         this.isDestroyed = true;
         this.removeAllListeners();
 
         if (this.config.debug) {
             console.log('🗑️ DigitalHuman destroyed');
         }
+    }
+
+    /**
+     * 进入视频通话模式
+     * @param {Object} options - 配置选项
+     * @param {string} options.pipPosition - PiP 窗口位置 ('bottom-right' | 'bottom-left' | 'top-right' | 'top-left')
+     * @param {number} options.pipScale - PiP 缩放比例，默认 0.25 (1/4)
+     * @param {boolean} options.showLocalVideo - 是否显示本地摄像头，默认 true
+     * @param {boolean} options.showAudioVisualizer - 是否显示音频可视化，默认 true
+     * @returns {Promise<MediaStream>} 本地媒体流
+     */
+    async enterVideoCallMode(options = {}) {
+        if (this.isVideoCallMode) {
+            console.warn('Already in video call mode');
+            return this.localMediaStream;
+        }
+
+        const config = {
+            pipPosition: options.pipPosition || 'bottom-right',
+            pipScale: options.pipScale || 0.25,
+            showLocalVideo: options.showLocalVideo !== false,
+            showAudioVisualizer: options.showAudioVisualizer !== false
+        };
+
+        // 保存初始配置
+        this.currentPipPosition = config.pipPosition;
+        this.currentPipScale = config.pipScale;
+        this.currentShowLocalVideo = config.showLocalVideo;
+        this.currentShowAudioVisualizer = config.showAudioVisualizer;
+
+        try {
+            // 获取本地摄像头和麦克风
+            this.localMediaStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    facingMode: 'user'
+                },
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
+
+            // 创建视频通话布局
+            this._createVideoCallLayout(config);
+
+            // 设置本地视频流
+            if (config.showLocalVideo && this.localVideoElement) {
+                this.localVideoElement.srcObject = this.localMediaStream;
+            }
+
+            // 启动音频可视化
+            if (config.showAudioVisualizer) {
+                this._startAudioVisualizer();
+            }
+
+            this.isVideoCallMode = true;
+
+            // 触发事件
+            this.emit('videoCallEnter', { stream: this.localMediaStream });
+
+            if (this.config.debug) {
+                console.log('📹 Entered video call mode');
+            }
+
+            return this.localMediaStream;
+
+        } catch (error) {
+            console.error('Failed to enter video call mode:', error);
+            this.emit('videoCallError', { error });
+            throw error;
+        }
+    }
+
+    /**
+     * 退出视频通话模式
+     */
+    exitVideoCallMode() {
+        if (!this.isVideoCallMode) {
+            return;
+        }
+
+        // 停止音频可视化
+        if (this.visualizerAnimationId) {
+            cancelAnimationFrame(this.visualizerAnimationId);
+            this.visualizerAnimationId = null;
+        }
+
+        // 停止本地媒体流
+        if (this.localMediaStream) {
+            this.localMediaStream.getTracks().forEach(track => track.stop());
+            this.localMediaStream = null;
+        }
+
+        // 移除视频通话布局
+        this._removeVideoCallLayout();
+
+        this.isVideoCallMode = false;
+
+        // 触发事件
+        this.emit('videoCallExit');
+
+        if (this.config.debug) {
+            console.log('📹 Exited video call mode');
+        }
+    }
+
+    /**
+     * 创建视频通话布局
+     * @private
+     */
+    _createVideoCallLayout(config) {
+        const container = this.config.container;
+
+        // 确保容器是相对定位
+        container.style.position = 'relative';
+
+        // 判断当前模式
+        const isCameraMainWindow = config.pipScale < 1.0; // 小窗口模式：摄像头主窗口
+        const isDigitalHumanMainWindow = config.pipScale === 1.0; // 大窗口模式：数字人主窗口
+
+        // 创建主窗口内容（根据模式决定是摄像头还是数字人）
+        if (isCameraMainWindow) {
+            // 摄像头主窗口模式：创建摄像头容器占据主窗口
+            this.videoCallContainer = document.createElement('div');
+            this.videoCallContainer.className = 'digital-human-video-call-container';
+            this.videoCallContainer.style.cssText = `
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: #000;
+                z-index: 1;
+                overflow: hidden;
+            `;
+
+            // 创建本地视频元素
+            this.localVideoElement = document.createElement('video');
+            this.localVideoElement.autoplay = true;
+            this.localVideoElement.playsInline = true;
+            this.localVideoElement.muted = true; // 本地视频静音避免回声
+            this.localVideoElement.style.cssText = `
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                transform: scaleX(-1); /* 镜像翻转，更自然 */
+            `;
+
+            this.videoCallContainer.appendChild(this.localVideoElement);
+
+            // 创建音频可视化 canvas（仅在摄像头主窗口模式下）
+            if (config.showAudioVisualizer) {
+                this.audioVisualizer = document.createElement('canvas');
+                this.audioVisualizer.className = 'audio-visualizer';
+                this.audioVisualizer.style.cssText = `
+                    position: absolute;
+                    bottom: 30px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    width: 120px;
+                    height: 30px;
+                    z-index: 10;
+                    pointer-events: none;
+                `;
+                this.audioVisualizer.width = 120;
+                this.audioVisualizer.height = 30;
+                this.videoCallContainer.appendChild(this.audioVisualizer);
+            }
+
+            // 插入到容器开头
+            container.insertBefore(this.videoCallContainer, container.firstChild);
+        }
+
+        // 找到数字人的 canvas 元素
+        const digitalHumanCanvas = this.sceneManager.renderer.domElement;
+
+        // 创建 PiP 容器（数字人或摄像头缩小到角落）
+        this.pipContainer = document.createElement('div');
+        this.pipContainer.className = 'digital-human-pip-container';
+
+        // 计算 PiP 尺寸
+        const pipWidth = container.offsetWidth * config.pipScale;
+        const pipHeight = container.offsetHeight * config.pipScale;
+
+        // 根据位置设置样式
+        const positions = {
+            'bottom-right': { bottom: '20px', right: '20px' },
+            'bottom-left': { bottom: '20px', left: '20px' },
+            'top-right': { top: '20px', right: '20px' },
+            'top-left': { top: '20px', left: '20px' }
+        };
+
+        const posStyle = positions[config.pipPosition] || positions['bottom-right'];
+
+        // 设置 PiP 容器样式（直角窗口）
+        this.pipContainer.style.cssText = `
+            position: absolute;
+            ${posStyle.top ? `top: ${posStyle.top};` : ''}
+            ${posStyle.bottom ? `bottom: ${posStyle.bottom};` : ''}
+            ${posStyle.left ? `left: ${posStyle.left};` : ''}
+            ${posStyle.right ? `right: ${posStyle.right};` : ''}
+            width: ${pipWidth}px;
+            height: ${pipHeight}px;
+            border-radius: 0;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            z-index: 100;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+        `;
+
+        // 如果是全屏模式（数字人主窗口），创建摄像头小窗口
+        if (isDigitalHumanMainWindow) {
+            // 数字人占据主窗口，摄像头变成小窗口 - 重新设置完整样式
+            this.pipContainer.style.cssText = `
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                border: none;
+                box-shadow: none;
+                border-radius: 0;
+                overflow: hidden;
+                z-index: 1;
+                background: ${this.config.backgroundColor || '#1a1a2e'};
+            `;
+
+            // 创建摄像头小窗口（直角窗口）
+            this.cameraPipContainer = document.createElement('div');
+            this.cameraPipContainer.className = 'digital-human-camera-pip-container';
+            this.cameraPipContainer.style.cssText = `
+                position: absolute;
+                ${posStyle.top ? `top: ${posStyle.top};` : ''}
+                ${posStyle.bottom ? `bottom: ${posStyle.bottom};` : ''}
+                ${posStyle.left ? `left: ${posStyle.left};` : ''}
+                ${posStyle.right ? `right: ${posStyle.right};` : ''}
+                width: ${pipWidth}px;
+                height: ${pipHeight}px;
+                border-radius: 0;
+                overflow: hidden;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+                z-index: 200;
+                transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+                cursor: pointer;
+                border: 3px solid rgba(255, 255, 255, 0.2);
+            `;
+
+            // 创建本地视频元素（用于摄像头小窗口）
+            this.cameraVideoElement = document.createElement('video');
+            this.cameraVideoElement.autoplay = true;
+            this.cameraVideoElement.playsInline = true;
+            this.cameraVideoElement.muted = true;
+            this.cameraVideoElement.style.cssText = `
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                transform: scaleX(-1);
+            `;
+
+            this.cameraPipContainer.appendChild(this.cameraVideoElement);
+            container.appendChild(this.cameraPipContainer);
+
+            // 为摄像头小窗口添加悬停效果（保存引用以便后续移除）
+            this.cameraPipMouseEnterHandler = () => {
+                this.cameraPipContainer.style.transform = 'scale(1.05)';
+                this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+            };
+
+            this.cameraPipMouseLeaveHandler = () => {
+                this.cameraPipContainer.style.transform = 'scale(1)';
+                this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+            };
+
+            this.cameraPipClickHandler = async (event) => {
+                event.stopPropagation();
+                try {
+                    await this.toggleWindowSize();
+                } catch (error) {
+                    console.error('Failed to toggle window size on camera click:', error);
+                }
+            };
+
+            this.cameraPipContainer.addEventListener('mouseenter', this.cameraPipMouseEnterHandler);
+            this.cameraPipContainer.addEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
+            this.cameraPipContainer.addEventListener('click', this.cameraPipClickHandler);
+        }
+
+        // 添加悬停效果（仅在小窗口模式下，保存引用以便后续移除）
+        if (config.pipScale < 1.0) {
+            this.pipMouseEnterHandler = () => {
+                this.pipContainer.style.transform = 'scale(1.05)';
+                this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+            };
+
+            this.pipMouseLeaveHandler = () => {
+                this.pipContainer.style.transform = 'scale(1)';
+                this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+            };
+
+            this.pipClickHandler = async (event) => {
+                event.stopPropagation();
+                try {
+                    await this.toggleWindowSize();
+                } catch (error) {
+                    console.error('Failed to toggle window size on click:', error);
+                }
+            };
+
+            this.pipContainer.addEventListener('mouseenter', this.pipMouseEnterHandler);
+            this.pipContainer.addEventListener('mouseleave', this.pipMouseLeaveHandler);
+            this.pipContainer.addEventListener('click', this.pipClickHandler);
+        }
+
+        // 将数字人 canvas 移入 PiP 容器
+        this.pipContainer.appendChild(digitalHumanCanvas);
+
+        // 调整数字人 canvas 样式以适应 PiP 容器
+        digitalHumanCanvas.style.width = '100%';
+        digitalHumanCanvas.style.height = '100%';
+
+        // 将 PiP 容器添加到主容器
+        container.appendChild(this.pipContainer);
+
+        // 调整 Three.js renderer 尺寸
+        this.sceneManager.renderer.setSize(pipWidth, pipHeight);
+        this.sceneManager.camera.aspect = pipWidth / pipHeight;
+        this.sceneManager.camera.updateProjectionMatrix();
+    }
+
+    /**
+     * 移除视频通话布局
+     * @private
+     */
+    _removeVideoCallLayout() {
+        const container = this.config.container;
+
+        // 移除视频通话容器
+        if (this.videoCallContainer && this.videoCallContainer.parentNode) {
+            this.videoCallContainer.parentNode.removeChild(this.videoCallContainer);
+            this.videoCallContainer = null;
+        }
+
+        // 移除摄像头小窗口
+        if (this.cameraPipContainer && this.cameraPipContainer.parentNode) {
+            this.cameraPipContainer.parentNode.removeChild(this.cameraPipContainer);
+            this.cameraPipContainer = null;
+        }
+
+        // 找到数字人的 canvas
+        const digitalHumanCanvas = this.sceneManager.renderer.domElement;
+
+        // 从 PiP 容器中取出 canvas
+        if (this.pipContainer && digitalHumanCanvas) {
+            // 将 canvas 移回原始容器
+            container.appendChild(digitalHumanCanvas);
+
+            // 恢复 canvas 样式
+            digitalHumanCanvas.style.width = '100%';
+            digitalHumanCanvas.style.height = '100%';
+
+            // 移除 PiP 容器
+            if (this.pipContainer.parentNode) {
+                this.pipContainer.parentNode.removeChild(this.pipContainer);
+            }
+            this.pipContainer = null;
+        }
+
+        // 恢复容器样式（重置为默认）
+        container.style.position = '';
+
+        // 恢复 Three.js renderer 尺寸
+        const width = container.offsetWidth;
+        const height = container.offsetHeight;
+        this.sceneManager.renderer.setSize(width, height);
+        this.sceneManager.camera.aspect = width / height;
+        this.sceneManager.camera.updateProjectionMatrix();
+
+        this.localVideoElement = null;
+        this.audioVisualizer = null;
+        this.cameraVideoElement = null;
+    }
+
+    /**
+     * 平滑切换大小窗口（小窗口 ↔ 大窗口）
+     * @param {Object} options - 切换配置
+     * @param {string} [options.pipPosition='bottom-right'] - 小窗口位置
+     * @param {number} [options.pipScale=0.25] - 小窗口缩放比例
+     * @param {boolean} [options.showLocalVideo=true] - 是否显示本地视频
+     * @param {boolean} [options.showAudioVisualizer=true] - 是否显示音频可视化器
+     */
+    async toggleWindowSize(options = {}) {
+        if (!this.isVideoCallMode) {
+            console.warn('Not in video call mode, cannot toggle window size');
+            return;
+        }
+
+        const container = this.config.container;
+        const isCurrentlySmallWindow = this.currentPipScale < 1.0;
+
+        if (this.config.debug) {
+            console.log(`📹 切换前状态: ${isCurrentlySmallWindow ? '摄像头主窗口，数字人小窗口' : '数字人主窗口，摄像头小窗口'}`);
+        }
+
+        try {
+            if (isCurrentlySmallWindow) {
+                // ===== 从 "摄像头主窗口" 切换到 "数字人主窗口" =====
+
+                // 1. 停止音频可视化
+                if (this.visualizerAnimationId) {
+                    cancelAnimationFrame(this.visualizerAnimationId);
+                    this.visualizerAnimationId = null;
+                }
+
+                // 2. 获取需要的元素和配置
+                const digitalHumanCanvas = this.sceneManager.renderer.domElement;
+                const pipScale = options.pipScale || 0.25;
+                const pipWidth = container.offsetWidth * pipScale;
+                const pipHeight = container.offsetHeight * pipScale;
+                const pipPosition = options.pipPosition || this.currentPipPosition || 'bottom-right';
+
+                const positions = {
+                    'bottom-right': { bottom: '20px', right: '20px' },
+                    'bottom-left': { bottom: '20px', left: '20px' },
+                    'top-right': { top: '20px', right: '20px' },
+                    'top-left': { top: '20px', left: '20px' }
+                };
+                const posStyle = positions[pipPosition] || positions['bottom-right'];
+
+                // 3. 移除数字人 PiP 容器的 hover 事件监听器（因为即将变成大窗口）
+                if (this.pipContainer && this.pipMouseEnterHandler) {
+                    this.pipContainer.removeEventListener('mouseenter', this.pipMouseEnterHandler);
+                    this.pipContainer.removeEventListener('mouseleave', this.pipMouseLeaveHandler);
+                    this.pipContainer.removeEventListener('click', this.pipClickHandler);
+                    this.pipMouseEnterHandler = null;
+                    this.pipMouseLeaveHandler = null;
+                    this.pipClickHandler = null;
+                }
+
+                // 4. 移除摄像头主容器
+                if (this.videoCallContainer && this.videoCallContainer.parentNode) {
+                    this.videoCallContainer.parentNode.removeChild(this.videoCallContainer);
+                }
+
+                // 5. 将数字人 PiP 容器改为全屏
+                this.pipContainer.style.cssText = `
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    border: none;
+                    box-shadow: none;
+                    border-radius: 0;
+                    overflow: hidden;
+                    z-index: 1;
+                    cursor: default;
+                    background: ${this.config.backgroundColor || '#1a1a2e'};
+                `;
+
+                // 5. 调整数字人 canvas 尺寸到全屏
+                this.sceneManager.renderer.setSize(container.offsetWidth, container.offsetHeight);
+                this.sceneManager.camera.aspect = container.offsetWidth / container.offsetHeight;
+                this.sceneManager.camera.updateProjectionMatrix();
+
+                // 6. 创建摄像头小窗口
+                this.cameraPipContainer = document.createElement('div');
+                this.cameraPipContainer.className = 'digital-human-camera-pip-container';
+                this.cameraPipContainer.style.cssText = `
+                    position: absolute;
+                    ${posStyle.top ? `top: ${posStyle.top};` : ''}
+                    ${posStyle.bottom ? `bottom: ${posStyle.bottom};` : ''}
+                    ${posStyle.left ? `left: ${posStyle.left};` : ''}
+                    ${posStyle.right ? `right: ${posStyle.right};` : ''}
+                    width: ${pipWidth}px;
+                    height: ${pipHeight}px;
+                    border-radius: 0;
+                    overflow: hidden;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+                    z-index: 200;
+                    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+                    cursor: pointer;
+                    border: 3px solid rgba(255, 255, 255, 0.2);
+                `;
+
+                // 7. 创建摄像头视频元素
+                this.cameraVideoElement = document.createElement('video');
+                this.cameraVideoElement.autoplay = true;
+                this.cameraVideoElement.playsInline = true;
+                this.cameraVideoElement.muted = true;
+                this.cameraVideoElement.style.cssText = `
+                    width: 100%;
+                    height: 100%;
+                    object-fit: cover;
+                    transform: scaleX(-1);
+                `;
+                this.cameraVideoElement.srcObject = this.localMediaStream;
+
+                this.cameraPipContainer.appendChild(this.cameraVideoElement);
+                container.appendChild(this.cameraPipContainer);
+
+                // 8. 添加悬停效果（保存引用以便后续移除）
+                this.cameraPipMouseEnterHandler = () => {
+                    this.cameraPipContainer.style.transform = 'scale(1.05)';
+                    this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+                };
+
+                this.cameraPipMouseLeaveHandler = () => {
+                    this.cameraPipContainer.style.transform = 'scale(1)';
+                    this.cameraPipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                };
+
+                this.cameraPipClickHandler = async (event) => {
+                    event.stopPropagation();
+                    await this.toggleWindowSize();
+                };
+
+                this.cameraPipContainer.addEventListener('mouseenter', this.cameraPipMouseEnterHandler);
+                this.cameraPipContainer.addEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
+                this.cameraPipContainer.addEventListener('click', this.cameraPipClickHandler);
+
+                // 10. 更新状态
+                this.currentPipScale = 1.0;
+                this.localVideoElement = null;
+                this.videoCallContainer = null;
+
+            } else {
+                // ===== 从 "数字人主窗口" 切换到 "摄像头主窗口" =====
+
+                // 1. 移除摄像头小窗口的事件监听器
+                if (this.cameraPipContainer && this.cameraPipMouseEnterHandler) {
+                    this.cameraPipContainer.removeEventListener('mouseenter', this.cameraPipMouseEnterHandler);
+                    this.cameraPipContainer.removeEventListener('mouseleave', this.cameraPipMouseLeaveHandler);
+                    this.cameraPipContainer.removeEventListener('click', this.cameraPipClickHandler);
+                    this.cameraPipMouseEnterHandler = null;
+                    this.cameraPipMouseLeaveHandler = null;
+                    this.cameraPipClickHandler = null;
+                }
+
+                // 2. 获取配置
+                const pipScale = options.pipScale || 0.25;
+                const pipWidth = container.offsetWidth * pipScale;
+                const pipHeight = container.offsetHeight * pipScale;
+                const pipPosition = options.pipPosition || this.currentPipPosition || 'bottom-right';
+
+                const positions = {
+                    'bottom-right': { bottom: '20px', right: '20px' },
+                    'bottom-left': { bottom: '20px', left: '20px' },
+                    'top-right': { top: '20px', right: '20px' },
+                    'top-left': { top: '20px', left: '20px' }
+                };
+                const posStyle = positions[pipPosition] || positions['bottom-right'];
+
+                // 3. 移除摄像头小窗口
+                if (this.cameraPipContainer && this.cameraPipContainer.parentNode) {
+                    this.cameraPipContainer.parentNode.removeChild(this.cameraPipContainer);
+                }
+
+                // 4. 创建摄像头主容器
+                this.videoCallContainer = document.createElement('div');
+                this.videoCallContainer.className = 'digital-human-video-call-container';
+                this.videoCallContainer.style.cssText = `
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: #000;
+                    z-index: 1;
+                    overflow: hidden;
+                `;
+
+                // 5. 创建本地视频元素
+                this.localVideoElement = document.createElement('video');
+                this.localVideoElement.autoplay = true;
+                this.localVideoElement.playsInline = true;
+                this.localVideoElement.muted = true;
+                this.localVideoElement.style.cssText = `
+                    width: 100%;
+                    height: 100%;
+                    object-fit: cover;
+                    transform: scaleX(-1);
+                `;
+                this.localVideoElement.srcObject = this.localMediaStream;
+
+                this.videoCallContainer.appendChild(this.localVideoElement);
+
+                // 6. 创建音频可视化 canvas
+                if (options.showAudioVisualizer !== false) {
+                    this.audioVisualizer = document.createElement('canvas');
+                    this.audioVisualizer.className = 'audio-visualizer';
+                    this.audioVisualizer.style.cssText = `
+                        position: absolute;
+                        bottom: 30px;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        width: 120px;
+                        height: 30px;
+                        z-index: 10;
+                        pointer-events: none;
+                    `;
+                    this.audioVisualizer.width = 120;
+                    this.audioVisualizer.height = 30;
+                    this.videoCallContainer.appendChild(this.audioVisualizer);
+                }
+
+                container.insertBefore(this.videoCallContainer, container.firstChild);
+
+                // 7. 调整数字人 PiP 容器为小窗口
+                this.pipContainer.style.cssText = `
+                    position: absolute;
+                    ${posStyle.top ? `top: ${posStyle.top};` : ''}
+                    ${posStyle.bottom ? `bottom: ${posStyle.bottom};` : ''}
+                    ${posStyle.left ? `left: ${posStyle.left};` : ''}
+                    ${posStyle.right ? `right: ${posStyle.right};` : ''}
+                    width: ${pipWidth}px;
+                    height: ${pipHeight}px;
+                    border-radius: 0;
+                    overflow: hidden;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+                    z-index: 100;
+                    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+                    cursor: pointer;
+                    border: 3px solid rgba(255, 255, 255, 0.2);
+                `;
+
+                // 8. 调整数字人 canvas 尺寸
+                this.sceneManager.renderer.setSize(pipWidth, pipHeight);
+                this.sceneManager.camera.aspect = pipWidth / pipHeight;
+                this.sceneManager.camera.updateProjectionMatrix();
+
+                // 9. 添加数字人小窗口的悬停效果（保存引用以便后续移除）
+                this.pipMouseEnterHandler = () => {
+                    this.pipContainer.style.transform = 'scale(1.05)';
+                    this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+                };
+
+                this.pipMouseLeaveHandler = () => {
+                    this.pipContainer.style.transform = 'scale(1)';
+                    this.pipContainer.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                };
+
+                this.pipClickHandler = async (event) => {
+                    event.stopPropagation();
+                    await this.toggleWindowSize();
+                };
+
+                this.pipContainer.addEventListener('mouseenter', this.pipMouseEnterHandler);
+                this.pipContainer.addEventListener('mouseleave', this.pipMouseLeaveHandler);
+                this.pipContainer.addEventListener('click', this.pipClickHandler);
+
+                // 10. 重新启动音频可视化
+                if (options.showAudioVisualizer !== false) {
+                    this._startAudioVisualizer();
+                }
+
+                // 11. 更新状态
+                this.currentPipScale = pipScale;
+                this.cameraVideoElement = null;
+                this.cameraPipContainer = null;
+            }
+
+            // 保存配置
+            this.currentPipPosition = options.pipPosition || this.currentPipPosition;
+            this.currentShowLocalVideo = options.showLocalVideo !== false;
+            this.currentShowAudioVisualizer = options.showAudioVisualizer !== false;
+
+            // 触发事件
+            this.emit('windowSizeToggle', {
+                isSmallWindow: this.currentPipScale < 1.0,
+                config: {
+                    pipPosition: this.currentPipPosition,
+                    pipScale: this.currentPipScale,
+                    showLocalVideo: this.currentShowLocalVideo,
+                    showAudioVisualizer: this.currentShowAudioVisualizer
+                }
+            });
+
+            if (this.config.debug) {
+                console.log(`📹 切换后状态: ${this.currentPipScale < 1.0 ? '摄像头主窗口，数字人小窗口' : '数字人主窗口，摄像头小窗口'}`);
+            }
+
+        } catch (error) {
+            console.error('Failed to toggle window size:', error);
+            this.emit('windowSizeToggleError', { error });
+            throw error;
+        }
+    }
+
+    /**
+     * 启动音频可视化
+     * @private
+     */
+    _startAudioVisualizer() {
+        if (!this.localMediaStream || !this.audioVisualizer) {
+            return;
+        }
+
+        // 创建音频上下文
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512; // 增加 FFT 大小以获得更平滑的频率数据
+        analyser.smoothingTimeConstant = 0.85; // 增加平滑系数
+
+        const source = audioContext.createMediaStreamSource(this.localMediaStream);
+        source.connect(analyser);
+
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const canvas = this.audioVisualizer;
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // 用于平滑音频数据的历史缓冲
+        let prevAmplitude = 0;
+
+        // Catmull-Rom 样条插值函数（获得更平滑的曲线）
+        const catmullRomSpline = (p0, p1, p2, p3, t) => {
+            const v0 = (p2 - p0) * 0.5;
+            const v1 = (p3 - p1) * 0.5;
+            const t2 = t * t;
+            const t3 = t * t2;
+            return (2 * p1 - 2 * p2 + v0 + v1) * t3 +
+                   (-3 * p1 + 3 * p2 - 2 * v0 - v1) * t2 +
+                   v0 * t + p1;
+        };
+
+        const draw = () => {
+            this.visualizerAnimationId = requestAnimationFrame(draw);
+
+            analyser.getByteFrequencyData(dataArray);
+
+            // 清空画布（完全透明）
+            ctx.clearRect(0, 0, width, height);
+
+            // 计算平均音量并平滑
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i];
+            }
+            const average = sum / bufferLength;
+            const targetAmplitude = (average / 255) * (height / 2) * 2.1;
+
+            // 使用插值平滑幅度变化
+            prevAmplitude += (targetAmplitude - prevAmplitude) * 0.15;
+            const amplitude = prevAmplitude;
+
+            // 绘制第一条波浪线
+            ctx.beginPath();
+            ctx.lineWidth = 2.5;
+
+            // 创建渐变色（浅蓝色渐变）
+            const gradient = ctx.createLinearGradient(0, 0, width, 0);
+            gradient.addColorStop(0, 'rgba(135, 206, 250, 0.3)');
+            gradient.addColorStop(0.5, 'rgba(100, 149, 237, 0.7)');
+            gradient.addColorStop(1, 'rgba(135, 206, 250, 0.3)');
+
+            ctx.strokeStyle = gradient;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            // 绘制平滑的波浪曲线
+            const points = 60; // 减少采样点，但使用样条插值
+            const step = width / points;
+            const centerY = height / 2;
+
+            // 生成关键点
+            const keyPoints = [];
+            for (let i = 0; i <= points; i++) {
+                const x = i * step;
+                const audioIndex = Math.floor((i / points) * bufferLength);
+                const audioValue = dataArray[audioIndex] / 255;
+
+                // 计算中心到边缘的衰减系数
+                const distanceFromCenter = Math.abs(i / points - 0.5) * 2;
+                const fadeOut = 1 - distanceFromCenter;
+                const smoothFade = Math.pow(fadeOut, 2.5);
+
+                // 使用正弦波创建平滑效果
+                const wave = Math.sin((i / points) * Math.PI * 4 + Date.now() / 300) * amplitude * 0.7 * smoothFade;
+                const y = centerY + wave + (audioValue * amplitude * 1.7 * smoothFade);
+
+                keyPoints.push({ x, y });
+            }
+
+            // 使用 Catmull-Rom 样条插值绘制超平滑曲线
+            ctx.moveTo(keyPoints[0].x, keyPoints[0].y);
+
+            for (let i = 0; i < keyPoints.length - 1; i++) {
+                const p0 = keyPoints[Math.max(0, i - 1)];
+                const p1 = keyPoints[i];
+                const p2 = keyPoints[i + 1];
+                const p3 = keyPoints[Math.min(keyPoints.length - 1, i + 2)];
+
+                // 在每两个关键点之间插入多个点
+                const segments = 10;
+                for (let j = 1; j <= segments; j++) {
+                    const t = j / segments;
+                    const x = p1.x + (p2.x - p1.x) * t;
+                    const y = catmullRomSpline(p0.y, p1.y, p2.y, p3.y, t);
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            ctx.stroke();
+
+            // 绘制第二条波浪线（增加层次感）
+            ctx.beginPath();
+            ctx.lineWidth = 2;
+
+            const gradient2 = ctx.createLinearGradient(0, 0, width, 0);
+            gradient2.addColorStop(0, 'rgba(173, 216, 230, 0.2)');
+            gradient2.addColorStop(0.5, 'rgba(135, 206, 250, 0.5)');
+            gradient2.addColorStop(1, 'rgba(173, 216, 230, 0.2)');
+
+            ctx.strokeStyle = gradient2;
+
+            // 生成第二条波浪线的关键点
+            const keyPoints2 = [];
+            for (let i = 0; i <= points; i++) {
+                const x = i * step;
+                const audioIndex = Math.floor((i / points) * bufferLength);
+                const audioValue = dataArray[audioIndex] / 255;
+
+                const distanceFromCenter = Math.abs(i / points - 0.5) * 2;
+                const fadeOut = 1 - distanceFromCenter;
+                const smoothFade = Math.pow(fadeOut, 2.5);
+
+                const wave = Math.sin((i / points) * Math.PI * 4 + Date.now() / 200) * amplitude * 0.6 * smoothFade;
+                const y = centerY - wave - (audioValue * amplitude * 1.4 * smoothFade);
+
+                keyPoints2.push({ x, y });
+            }
+
+            ctx.moveTo(keyPoints2[0].x, keyPoints2[0].y);
+
+            for (let i = 0; i < keyPoints2.length - 1; i++) {
+                const p0 = keyPoints2[Math.max(0, i - 1)];
+                const p1 = keyPoints2[i];
+                const p2 = keyPoints2[i + 1];
+                const p3 = keyPoints2[Math.min(keyPoints2.length - 1, i + 2)];
+
+                const segments = 10;
+                for (let j = 1; j <= segments; j++) {
+                    const t = j / segments;
+                    const x = p1.x + (p2.x - p1.x) * t;
+                    const y = catmullRomSpline(p0.y, p1.y, p2.y, p3.y, t);
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            ctx.stroke();
+        };
+
+        draw();
     }
 }

@@ -132,7 +132,7 @@
 
             <!-- 🆕 麦克风实时驱动 -->
             <div class="control-section">
-                <div class="section-title">🎤 麦克风实时驱动（新功能）</div>
+                <div class="section-title">🎤 麦克风实时驱动</div>
                 <div class="volume-meter" id="volumeMeter">
                     <div class="volume-bar" id="volumeBar"></div>
                 </div>
@@ -140,6 +140,17 @@
                 <button id="btnStopMic" disabled>⏹ 停止录音</button>
                 <div style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 8px;">
                     💡 点击"开始录音驱动"后对着麦克风说话，数字人会实时同步你的嘴形
+                </div>
+            </div>
+
+            <!-- 🆕 视频通话模式 -->
+            <div class="control-section">
+                <div class="section-title">📹 视频通话模式（新功能）</div>
+                <button id="btnEnterVideoCall">📹 进入视频通话</button>
+                <button id="btnExitVideoCall" disabled>❌ 退出视频通话</button>
+                <div style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 8px;">
+                    💡 进入后，数字人缩小到右下角，主窗口显示摄像头画面<br>
+                    🖱️ 点击小窗口可切换大小窗口，支持音频可视化特效
                 </div>
             </div>
 
@@ -432,6 +443,54 @@
 
             updateStatus('⏹ 录音已停止');
             console.log('⏹ 麦克风驱动已停止');
+        });
+
+        // ===== 视频通话模式控制 =====
+
+        const btnEnterVideoCall = document.getElementById('btnEnterVideoCall');
+        const btnExitVideoCall = document.getElementById('btnExitVideoCall');
+
+        /**
+         * 进入视频通话模式
+         */
+        btnEnterVideoCall.addEventListener('click', async () => {
+            try {
+                updateStatus('📹 正在请求摄像头和麦克风权限...');
+
+                // 进入视频通话模式
+                await avatar.enterVideoCallMode({
+                    pipPosition: 'bottom-right',  // 右下角
+                    pipScale: 0.25,                // 1/4 大小
+                    showLocalVideo: true,
+                    showAudioVisualizer: true
+                });
+
+                // 更新 UI
+                btnEnterVideoCall.disabled = true;
+                btnExitVideoCall.disabled = false;
+
+                updateStatus('📹 视频通话模式已开启！数字人在右下角小窗口中');
+                console.log('✅ 视频通话模式已进入');
+
+            } catch (error) {
+                console.error('进入视频通话模式失败:', error);
+                updateStatus('❌ 进入视频通话模式失败: ' + error.message);
+                alert('无法访问摄像头/麦克风，请检查浏览器权限设置');
+            }
+        });
+
+        /**
+         * 退出视频通话模式
+         */
+        btnExitVideoCall.addEventListener('click', () => {
+            avatar.exitVideoCallMode();
+
+            // 更新 UI
+            btnEnterVideoCall.disabled = false;
+            btnExitVideoCall.disabled = true;
+
+            updateStatus('❌ 视频通话模式已退出');
+            console.log('⏹ 视频通话模式已退出');
         });
 
         // ===== 页面卸载时清理资源 =====

@@ -387,6 +387,236 @@ await avatar.speakStreaming({
 
 ---
 
+## 📹 视频通话模式（新功能）
+
+### 什么是视频通话模式？
+
+视频通话模式将数字人与您的摄像头画面结合，创造类似视频会议的体验。您可以：
+- 🎥 同时显示数字人和本地摄像头画面
+- 🔄 灵活切换主窗口和小窗口
+- 📊 实时音频可视化效果
+- 🖱️ 点击小窗口即可切换
+
+### 快速开始
+
+```javascript
+import { DigitalHuman } from './src/index.js';
+
+const avatar = new DigitalHuman({
+    container: '#avatar'
+});
+
+// 进入视频通话模式
+await avatar.enterVideoCallMode({
+    pipPosition: 'bottom-right',      // 小窗口位置：'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
+    pipScale: 0.25,                    // 小窗口缩放比例，默认 0.25 (1/4)
+    showLocalVideo: true,              // 是否显示本地摄像头，默认 true
+    showAudioVisualizer: true          // 是否显示音频可视化，默认 true
+});
+
+// 退出视频通话模式
+avatar.exitVideoCallMode();
+```
+
+### 窗口切换功能
+
+视频通话模式支持灵活的窗口切换，有两种方式：
+
+#### 方式 1：点击小窗口切换（UI 交互）
+```javascript
+// 进入视频通话模式后，直接点击小窗口即可切换
+// - 初始：摄像头主窗口 + 数字人小窗口
+// - 点击后：数字人主窗口 + 摄像头小窗口
+// - 再次点击：切换回初始状态
+```
+
+#### 方式 2：代码调用切换
+```javascript
+// 直接调用切换方法
+await avatar.toggleWindowSize();
+
+// 或者指定切换参数
+await avatar.toggleWindowSize({
+    pipPosition: 'top-left',           // 改变小窗口位置
+    pipScale: 0.3,                      // 改变小窗口大小
+    showAudioVisualizer: false          // 关闭音频可视化
+});
+```
+
+### 完整示例
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        #avatar {
+            width: 800px;
+            height: 600px;
+            position: relative;  /* 重要：确保容器支持绝对定位 */
+        }
+    </style>
+</head>
+<body>
+    <div id="avatar"></div>
+    <button id="btnEnter">进入视频通话</button>
+    <button id="btnExit">退出视频通话</button>
+    <button id="btnToggle">切换窗口</button>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import { DigitalHuman } from './src/index.js';
+
+        const avatar = new DigitalHuman({
+            container: '#avatar'
+        });
+
+        // 进入视频通话模式
+        document.getElementById('btnEnter').addEventListener('click', async () => {
+            try {
+                await avatar.enterVideoCallMode({
+                    pipPosition: 'bottom-right',
+                    pipScale: 0.25,
+                    showLocalVideo: true,
+                    showAudioVisualizer: true
+                });
+                console.log('已进入视频通话模式');
+            } catch (error) {
+                console.error('进入失败:', error);
+                alert('无法访问摄像头/麦克风，请检查浏览器权限设置');
+            }
+        });
+
+        // 退出视频通话模式
+        document.getElementById('btnExit').addEventListener('click', () => {
+            avatar.exitVideoCallMode();
+            console.log('已退出视频通话模式');
+        });
+
+        // 切换窗口大小
+        document.getElementById('btnToggle').addEventListener('click', async () => {
+            await avatar.toggleWindowSize();
+            console.log('窗口已切换');
+        });
+    </script>
+</body>
+</html>
+```
+
+### 音频可视化效果
+
+视频通话模式内置了精美的音频可视化效果：
+- 🌊 **超平滑波浪线**：使用 Catmull-Rom 样条插值，无锯齿感
+- 🎨 **渐变色彩**：浅蓝色渐变，透明度自然过渡
+- 📊 **实时响应**：根据麦克风音量动态调整波形幅度
+- ⚡ **高性能**：优化的渲染算法，流畅无卡顿
+
+可以通过配置控制是否显示：
+```javascript
+// 进入时关闭音频可视化
+await avatar.enterVideoCallMode({
+    showAudioVisualizer: false
+});
+
+// 切换时关闭音频可视化
+await avatar.toggleWindowSize({
+    showAudioVisualizer: false
+});
+```
+
+### API 说明
+
+#### enterVideoCallMode(options)
+进入视频通话模式
+
+**参数：**
+```javascript
+{
+    pipPosition: 'bottom-right',       // 小窗口位置
+    pipScale: 0.25,                     // 小窗口缩放比例 (0.1 - 1.0)
+    showLocalVideo: true,               // 是否显示本地摄像头
+    showAudioVisualizer: true           // 是否显示音频可视化
+}
+```
+
+**返回：** `Promise<MediaStream>` - 本地媒体流
+
+#### exitVideoCallMode()
+退出视频通话模式，停止所有媒体流
+
+#### toggleWindowSize(options)
+切换主窗口和小窗口
+
+**参数：**
+```javascript
+{
+    pipPosition: 'bottom-right',       // 小窗口位置（可选）
+    pipScale: 0.25,                     // 小窗口缩放比例（可选）
+    showAudioVisualizer: true           // 是否显示音频可视化（可选）
+}
+```
+
+**返回：** `Promise<void>`
+
+### 事件监听
+
+```javascript
+// 进入视频通话模式
+avatar.on('videoCallEnter', ({ stream }) => {
+    console.log('进入视频通话模式', stream);
+});
+
+// 退出视频通话模式
+avatar.on('videoCallExit', () => {
+    console.log('退出视频通话模式');
+});
+
+// 窗口大小切换
+avatar.on('windowSizeToggle', ({ isSmallWindow, config }) => {
+    console.log('窗口已切换', { isSmallWindow, config });
+});
+
+// 视频通话错误
+avatar.on('videoCallError', ({ error }) => {
+    console.error('视频通话错误', error);
+});
+```
+
+### 注意事项
+
+1. **容器样式要求**：
+   - 容器必须有明确的宽高
+   - 容器需要 `position: relative` 以支持绝对定位的子元素
+
+2. **浏览器权限**：
+   - 首次使用需要授予摄像头和麦克风权限
+   - 生产环境必须使用 HTTPS（本地开发可用 HTTP）
+
+3. **浏览器兼容性**：
+   - 需要支持 `getUserMedia` API
+   - 需要支持 Web Audio API
+   - 推荐使用 Chrome、Edge、Firefox、Safari 最新版
+
+4. **性能优化**：
+   - 视频分辨率默认为 1280x720
+   - 音频可视化使用优化的 FFT 算法
+   - 窗口切换采用 CSS3 过渡动画
+
+5. **资源清理**：
+   - 退出视频通话模式时会自动停止所有媒体流
+   - 页面卸载时建议调用 `avatar.destroy()` 清理资源
+
+---
+
 ## 🎤 麦克风实时驱动（新功能）
 
 ### 什么是麦克风实时驱动？

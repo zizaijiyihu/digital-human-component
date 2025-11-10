@@ -1,15 +1,16 @@
 /**
  * 循环视频缓冲区
  * 维护最近 N 秒的视频片段
+ * 策略：始终保留第一个 chunk（包含 WebM 头部），然后循环存储最近的数据
  */
 export class CircularVideoBuffer {
     constructor(duration = 5000) {
         this.maxDuration = duration; // 最大缓冲时长（毫秒）
-        this.chunks = [];            // 视频数据块（不包含初始化片段）
+        this.chunks = [];            // 视频数据块
         this.timestamps = [];        // 对应的时间戳
         this.startTime = null;       // 缓冲区开始时间
-        this.initChunk = null;       // 初始化片段（WebM 头部，单独保存）
-        this.initTimestamp = null;   // 初始化片段的时间戳
+        this.firstChunk = null;      // 第一个 chunk（包含 WebM 头部，永不删除）
+        this.firstTimestamp = null;  // 第一个 chunk 的时间戳
     }
 
     /**
@@ -22,31 +23,23 @@ export class CircularVideoBuffer {
             this.startTime = timestamp;
         }
 
-        // 第一个有意义的 chunk 是初始化片段（通常 > 1KB）
-        // MediaRecorder 可能在启动时产生一个非常小的空 chunk，需要跳过
-        if (this.initChunk === null && chunk.size > 1024) {
-            this.initChunk = chunk;
-            this.initTimestamp = timestamp;
-            console.log(`[CircularBuffer] Saved init chunk (${chunk.size} bytes) - this is the header, will not be in circular buffer`);
-            // 初始化片段不加入循环缓冲区
-            return;
-        }
-
-        // 跳过初始化片段之前的小 chunk
-        if (this.initChunk === null) {
-            console.log(`[CircularBuffer] Skipping small chunk (${chunk.size} bytes) waiting for init segment`);
-            return;
+        // 保存第一个 chunk（包含 WebM 头部，必须保留）
+        if (this.firstChunk === null) {
+            this.firstChunk = chunk;
+            this.firstTimestamp = timestamp;
+            console.log(`[CircularBuffer] Saved first chunk (${chunk.size} bytes) - contains WebM header`);
         }
 
         this.chunks.push(chunk);
         this.timestamps.push(timestamp);
 
-        // 移除超过最大时长的旧片段
+        // 移除超过最大时长的旧片段（但不删除第一个 chunk）
         this._pruneOldChunks(timestamp);
     }
 
     /**
      * 清理超过最大时长的旧片段
+     * 保证第一个 chunk 永不被删除
      * @private
      * @param {number} currentTime - 当前时间戳
      */
@@ -54,15 +47,16 @@ export class CircularVideoBuffer {
         const cutoffTime = currentTime - this.maxDuration;
         let removedCount = 0;
 
-        // 正常清理超时的 chunks
-        while (this.timestamps.length > 0 && this.timestamps[0] < cutoffTime) {
+        // 从第二个 chunk 开始检查（索引1），第一个 chunk（索引0）永远保留
+        // 删除所有时间戳早于 cutoffTime 的 chunks，但保留第一个
+        while (this.chunks.length > 1 && this.timestamps[0] !== this.firstTimestamp && this.timestamps[0] < cutoffTime) {
             this.chunks.shift();
             this.timestamps.shift();
             removedCount++;
         }
 
         if (removedCount > 0) {
-            console.log(`[CircularBuffer] Pruned ${removedCount} old chunks, keeping ${this.chunks.length} chunks (${this.getDuration()}ms)`);
+            console.log(`[CircularBuffer] Pruned ${removedCount} old chunks, keeping ${this.chunks.length} chunks (duration: ${this.getDuration()}ms)`);
         }
 
         // 更新开始时间
@@ -73,16 +67,10 @@ export class CircularVideoBuffer {
 
     /**
      * 获取所有缓冲的视频片段
-     * 始终将初始化片段放在最前面
      * @returns {Blob[]} 视频数据块数组
      */
     getAll() {
-        // 初始化片段 + 循环缓冲区的数据片段
-        if (this.initChunk) {
-            console.log(`[CircularBuffer] Returning ${this.chunks.length + 1} chunks (1 init + ${this.chunks.length} media segments)`);
-            return [this.initChunk, ...this.chunks];
-        }
-        console.warn(`[CircularBuffer] No init chunk found, returning ${this.chunks.length} chunks (may not be playable)`);
+        console.log(`[CircularBuffer] Returning ${this.chunks.length} chunks, duration: ${this.getDuration()}ms`);
         return [...this.chunks];
     }
 
@@ -118,8 +106,8 @@ export class CircularVideoBuffer {
         this.chunks = [];
         this.timestamps = [];
         this.startTime = null;
-        this.initChunk = null;
-        this.initTimestamp = null;
+        this.firstChunk = null;
+        this.firstTimestamp = null;
     }
 
     /**

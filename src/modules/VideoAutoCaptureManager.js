@@ -344,6 +344,14 @@ export class VideoAutoCaptureManager {
         }
 
         const chunks = this.circularBuffer.getAll();
+
+        // 详细诊断
+        console.log(`[VideoCapture] Getting buffer video:`);
+        console.log(`  - Total chunks: ${chunks.length}`);
+        console.log(`  - First chunk size: ${chunks[0]?.size || 0} bytes (should be init segment)`);
+        console.log(`  - Chunk sizes:`, chunks.map(c => c.size));
+        console.log(`  - Using mimeType: ${this.config.videoFormat}`);
+
         const videoBlob = new Blob(chunks, { type: this.config.videoFormat });
 
         const metadata = {
@@ -355,7 +363,6 @@ export class VideoAutoCaptureManager {
         };
 
         console.log(`📹 Current buffer video: ${chunks.length} chunks, ${metadata.duration}ms, ${(videoBlob.size / 1024 / 1024).toFixed(2)} MB`);
-        console.log(`[VideoCapture] Buffer chunks sizes:`, chunks.map(c => c.size));
 
         return { blob: videoBlob, metadata };
     }

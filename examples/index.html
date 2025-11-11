@@ -164,7 +164,9 @@
                     💡 循环录制 1 组视频，每组 5 秒<br>
                     🎤 说话时自动捕获：说话前的 1 组 + 说话期间的 1 组<br>
                     📊 采集状态：<span id="captureStatus">未启动</span><br>
-                    🎚️ 音频能量：<span id="audioEnergy">--</span> / 阈值：<span id="energyThreshold">--</span>
+                    🎚️ 音频能量：<span id="audioEnergy">--</span><br>
+                    📏 动态阈值：[<span id="lowThreshold">--</span>, <span id="highThreshold">--</span>]<br>
+                    🔘 VAD 状态：<span id="vadState">--</span>
                 </div>
             </div>
 
@@ -516,7 +518,9 @@
         const btnDownloadGroups = document.getElementById('btnDownloadGroups');
         const captureStatus = document.getElementById('captureStatus');
         const audioEnergy = document.getElementById('audioEnergy');
-        const energyThreshold = document.getElementById('energyThreshold');
+        const lowThreshold = document.getElementById('lowThreshold');
+        const highThreshold = document.getElementById('highThreshold');
+        const vadState = document.getElementById('vadState');
 
         let lastVideoGroups = null;    // 保存视频组
         let energyMonitorInterval = null; // 能量监控定时器
@@ -600,11 +604,35 @@
                 energyMonitorInterval = setInterval(() => {
                     const status = avatar.getVideoAutoCaptureStatus();
                     if (status) {
-                        audioEnergy.textContent = status.currentEnergy.toFixed(1);
-                        energyThreshold.textContent = status.threshold;
+                        // 获取 SpeechDetector 实例
+                        const speechDetector = avatar.videoAutoCaptureManager?.speechDetector;
 
-                        // 根据是否超过阈值改变颜色
-                        if (status.currentEnergy > status.threshold) {
+                        // 显示音频能量
+                        audioEnergy.textContent = status.currentEnergy.toFixed(1);
+
+                        // 显示动态阈值
+                        if (speechDetector) {
+                            const low = speechDetector.getLowThreshold();
+                            const high = speechDetector.getHighThreshold();
+                            lowThreshold.textContent = low.toFixed(1);
+                            highThreshold.textContent = high.toFixed(1);
+
+                            // 显示 VAD 状态
+                            const state = speechDetector.getCurrentState();
+                            const stateEmoji = {
+                                'IDLE': '⚪',
+                                'PRE_ACTIVE': '🟡',
+                                'SPEAKING': '🟢'
+                            };
+                            vadState.textContent = `${stateEmoji[state]} ${state}`;
+                            vadState.style.color = state === 'SPEAKING' ? '#44ff44' :
+                                                   state === 'PRE_ACTIVE' ? '#ffcc00' :
+                                                   'rgba(255,255,255,0.7)';
+                        }
+
+                        // 根据能量和阈值改变颜色
+                        const currentLow = speechDetector ? speechDetector.getLowThreshold() : status.threshold;
+                        if (status.currentEnergy > currentLow) {
                             audioEnergy.style.color = '#44ff44'; // 绿色：检测到声音
                         } else {
                             audioEnergy.style.color = 'rgba(255,255,255,0.7)'; // 白色：静音
@@ -641,7 +669,9 @@
             captureStatus.textContent = '未启动';
             captureStatus.style.color = 'rgba(255,255,255,0.7)';
             audioEnergy.textContent = '--';
-            energyThreshold.textContent = '--';
+            lowThreshold.textContent = '--';
+            highThreshold.textContent = '--';
+            vadState.textContent = '--';
 
             updateStatus('⏹ 视频自动采集已停止');
             console.log('⏹ 视频自动采集已停止');

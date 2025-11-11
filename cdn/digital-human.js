@@ -1817,27 +1817,48 @@
     }
 
     /**
-     * 说话检测器
+     * 说话检测器（动态自适应阈值 + 预激活机制）
      * 基于音频能量分析检测用户是否在说话
+     *
+     * 核心特性：
+     * 1. 动态自适应阈值：根据环境噪音自动调整阈值
+     * 2. 预激活机制：低能量也能触发预激活，持续上升则确认为说话
+     * 3. 三状态机：IDLE → PRE_ACTIVE → SPEAKING
      */
     class SpeechDetector {
         constructor(analyser, options = {}) {
             this.analyser = analyser;
 
             // 配置参数
-            this.threshold = options.threshold || 30;                    // 能量阈值（默认 30，降低以提高灵敏度）
+            this.baseThreshold = options.threshold || 30;                // 基础阈值（仅用于未校准时）
             this.silenceDuration = options.silenceDuration || 2000;      // 静音持续时间（默认 2000ms）
             this.minSpeakDuration = options.minSpeakDuration || 500;     // 最小说话时长（默认 500ms）
+            this.calibrationDuration = options.calibrationDuration || 3000;  // 校准时长（默认 3000ms）
+            this.noiseUpdateInterval = options.noiseUpdateInterval || 10000; // 噪音基准更新间隔（默认 10s）
 
-            // 状态
-            this.isSpeaking = false;
-            this.lastSpeechTime = 0;
+            // 动态阈值参数
+            this.noiseBaseline = null;              // 背景噪音基准
+            this.noiseHistory = [];                 // 噪音历史（用于计算基准）
+            this.lowThresholdMultiplier = 1.5;      // 预激活阈值倍数
+            this.highThresholdMultiplier = 3.0;     // 确认说话阈值倍数
+            this.isCalibrated = false;              // 是否已校准
+            this.lastNoiseUpdateTime = 0;           // 上次更新噪音基准的时间
+
+            // 状态机：IDLE | PRE_ACTIVE | SPEAKING
+            this.state = 'IDLE';
+            this.preActiveStartTime = 0;
             this.speechStartTime = 0;
             this.silenceStartTime = 0;
+            this.lastSpeechTime = 0;
+
+            // 能量趋势追踪（用于判断能量是否持续上升）
+            this.energyTrend = [];                  // 最近的能量值（滑动窗口）
+            this.energyTrendWindow = 5;             // 趋势窗口大小（5 帧 = 500ms）
 
             // 回调函数
             this.onSpeakingStart = null;
             this.onSpeakingEnd = null;
+            this.onCalibrationComplete = null;      // 校准完成回调
 
             // 检测循环
             this.detectionInterval = null;
@@ -1845,6 +1866,9 @@
 
             // 数据缓冲
             this.dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+            // 调试
+            this.lastLogTime = 0;
         }
 
         /**
@@ -1857,16 +1881,82 @@
             }
 
             this.isRunning = true;
-            this.isSpeaking = false;
-            this.lastSpeechTime = 0;
+            this.state = 'IDLE';
+            this.preActiveStartTime = 0;
             this.speechStartTime = 0;
             this.silenceStartTime = 0;
+            this.lastSpeechTime = 0;
+            this.energyTrend = [];
+            this.noiseHistory = [];
+            this.isCalibrated = false;
+            this.noiseBaseline = null;
+
+            console.log('🎙️ SpeechDetector 启动中...');
+            console.log(`   - 校准时长: ${this.calibrationDuration}ms`);
+            console.log(`   - 检测间隔: ${interval}ms`);
+
+            // 开始校准阶段
+            this._startCalibration(interval);
 
             this.detectionInterval = setInterval(() => {
                 this._detect();
             }, interval);
 
-            console.log('✅ SpeechDetector started');
+            this.isRunning = true;
+        }
+
+        /**
+         * 开始校准（采样背景噪音）
+         * @private
+         */
+        _startCalibration(interval) {
+            console.log('📊 开始校准背景噪音...');
+
+            const calibrationStartTime = Date.now();
+            const calibrationInterval = setInterval(() => {
+                const energy = this._getAudioEnergy();
+                this.noiseHistory.push(energy);
+
+                const elapsed = Date.now() - calibrationStartTime;
+                if (elapsed >= this.calibrationDuration) {
+                    clearInterval(calibrationInterval);
+                    this._completeCalibration();
+                }
+            }, interval);
+        }
+
+        /**
+         * 完成校准
+         * @private
+         */
+        _completeCalibration() {
+            if (this.noiseHistory.length === 0) {
+                console.warn('⚠️ 校准失败：无有效数据，使用默认阈值');
+                this.noiseBaseline = this.baseThreshold / this.highThresholdMultiplier;
+                this.isCalibrated = true;
+                return;
+            }
+
+            // 使用中位数作为噪音基准（比平均值更鲁棒，抗异常值干扰）
+            this.noiseBaseline = this._median(this.noiseHistory);
+            this.isCalibrated = true;
+            this.lastNoiseUpdateTime = Date.now();
+
+            const lowThreshold = this.getLowThreshold();
+            const highThreshold = this.getHighThreshold();
+
+            console.log('✅ 校准完成！');
+            console.log(`   - 背景噪音基准: ${this.noiseBaseline.toFixed(1)}`);
+            console.log(`   - 预激活阈值: ${lowThreshold.toFixed(1)} (基准 × ${this.lowThresholdMultiplier})`);
+            console.log(`   - 确认阈值: ${highThreshold.toFixed(1)} (基准 × ${this.highThresholdMultiplier})`);
+
+            if (this.onCalibrationComplete) {
+                this.onCalibrationComplete({
+                    noiseBaseline: this.noiseBaseline,
+                    lowThreshold: lowThreshold,
+                    highThreshold: highThreshold
+                });
+            }
         }
 
         /**
@@ -1885,11 +1975,11 @@
             }
 
             // 如果正在说话，触发结束事件
-            if (this.isSpeaking && this.onSpeakingEnd) {
+            if (this.state === 'SPEAKING' && this.onSpeakingEnd) {
                 this.onSpeakingEnd();
             }
 
-            this.isSpeaking = false;
+            this.state = 'IDLE';
 
             console.log('⏹ SpeechDetector stopped');
         }
@@ -1899,70 +1989,198 @@
          * @private
          */
         _detect() {
+            // 如果尚未校准，跳过检测
+            if (!this.isCalibrated) {
+                return;
+            }
+
             const now = Date.now();
             const energy = this._getAudioEnergy();
-            const isCurrentlySpeaking = energy > this.threshold;
 
-            // 每秒打印一次音频能量（用于调试）
-            if (this.lastLogTime === undefined || now - this.lastLogTime > 1000) {
-                console.log(`[VAD] 音频能量: ${energy.toFixed(1)} (阈值: ${this.threshold}) - ${isCurrentlySpeaking ? '🟢 检测到声音' : '⚪ 静音'}`);
+            // 获取动态阈值
+            const lowThreshold = this.getLowThreshold();
+            const highThreshold = this.getHighThreshold();
+
+            // 更新能量趋势
+            this.energyTrend.push(energy);
+            if (this.energyTrend.length > this.energyTrendWindow) {
+                this.energyTrend.shift();
+            }
+
+            // 调试日志（每秒打印一次）
+            if (now - this.lastLogTime > 1000) {
+                const stateEmoji = {
+                    'IDLE': '⚪',
+                    'PRE_ACTIVE': '🟡',
+                    'SPEAKING': '🟢'
+                };
+                console.log(`[VAD] 能量: ${energy.toFixed(1)} | 阈值: [${lowThreshold.toFixed(1)}, ${highThreshold.toFixed(1)}] | 状态: ${stateEmoji[this.state]} ${this.state}`);
                 this.lastLogTime = now;
             }
 
-            if (isCurrentlySpeaking) {
-                // 检测到声音
+            // 状态机逻辑
+            switch (this.state) {
+                case 'IDLE':
+                    this._handleIdleState(energy, lowThreshold, now);
+                    break;
+
+                case 'PRE_ACTIVE':
+                    this._handlePreActiveState(energy, lowThreshold, highThreshold, now);
+                    break;
+
+                case 'SPEAKING':
+                    this._handleSpeakingState(energy, lowThreshold, now);
+                    break;
+            }
+
+            // 定期更新噪音基准（仅在 IDLE 状态下）
+            if (this.state === 'IDLE' && now - this.lastNoiseUpdateTime > this.noiseUpdateInterval) {
+                this._updateNoiseBaseline(energy);
+            }
+        }
+
+        /**
+         * 处理 IDLE 状态
+         * @private
+         */
+        _handleIdleState(energy, lowThreshold, now) {
+            if (energy > lowThreshold) {
+                // 能量超过预激活阈值，进入 PRE_ACTIVE
+                this.state = 'PRE_ACTIVE';
+                this.preActiveStartTime = now;
+                this.energyTrend = [energy];
+                console.log(`[VAD] 🟡 进入预激活状态 (能量: ${energy.toFixed(1)} > ${lowThreshold.toFixed(1)})`);
+            }
+        }
+
+        /**
+         * 处理 PRE_ACTIVE 状态
+         * @private
+         */
+        _handlePreActiveState(energy, lowThreshold, highThreshold, now) {
+            const elapsed = now - this.preActiveStartTime;
+
+            // 检查能量是否持续上升
+            const isRising = this._isEnergyRising();
+
+            // 确认为说话的条件：
+            // 1. 能量持续上升超过 300ms，或
+            // 2. 能量超过高阈值
+            if ((isRising && elapsed >= 300) || energy > highThreshold) {
+                this.state = 'SPEAKING';
+                this.speechStartTime = this.preActiveStartTime;
+                this.silenceStartTime = 0;
                 this.lastSpeechTime = now;
 
-                if (!this.isSpeaking) {
-                    // 从静音到说话
-                    if (this.speechStartTime === 0) {
-                        this.speechStartTime = now;
-                        console.log(`[VAD] 🎤 开始检测声音，等待持续 ${this.minSpeakDuration}ms...`);
-                    }
+                console.log(`[VAD] 🟢 确认说话开始！(${isRising ? '能量持续上升' : '超过高阈值'}, 持续 ${elapsed}ms)`);
 
-                    // 持续说话超过最小时长，触发开始事件
-                    const speakDuration = now - this.speechStartTime;
-                    if (speakDuration >= this.minSpeakDuration) {
-                        this.isSpeaking = true;
-                        this.silenceStartTime = 0;
-
-                        console.log(`[VAD] 🗣️ 说话开始！持续时长: ${speakDuration}ms`);
-
-                        if (this.onSpeakingStart) {
-                            this.onSpeakingStart();
-                        }
-                    }
-                }
-            } else {
-                // 检测到静音
-                if (this.isSpeaking) {
-                    // 从说话到静音
-                    if (this.silenceStartTime === 0) {
-                        this.silenceStartTime = now;
-                        console.log(`[VAD] 🔇 检测到静音，等待持续 ${this.silenceDuration}ms...`);
-                    }
-
-                    // 持续静音超过阈值，触发结束事件
-                    const silenceDuration = now - this.silenceStartTime;
-                    if (silenceDuration >= this.silenceDuration) {
-                        this.isSpeaking = false;
-                        this.speechStartTime = 0;
-                        this.silenceStartTime = 0;
-
-                        console.log(`[VAD] ⏹️ 说话结束！静音持续: ${silenceDuration}ms`);
-
-                        if (this.onSpeakingEnd) {
-                            this.onSpeakingEnd();
-                        }
-                    }
-                } else {
-                    // 持续静音，重置说话开始时间
-                    if (this.speechStartTime !== 0) {
-                        console.log(`[VAD] ⚠️ 声音持续时间不足 ${this.minSpeakDuration}ms，已重置`);
-                    }
-                    this.speechStartTime = 0;
+                if (this.onSpeakingStart) {
+                    this.onSpeakingStart();
                 }
             }
+            // 能量回落，取消预激活
+            else if (energy < lowThreshold && elapsed > 500) {
+                this.state = 'IDLE';
+                this.preActiveStartTime = 0;
+                console.log(`[VAD] ⚪ 预激活取消 (能量回落)`);
+            }
+        }
+
+        /**
+         * 处理 SPEAKING 状态
+         * @private
+         */
+        _handleSpeakingState(energy, lowThreshold, now) {
+            if (energy > lowThreshold) {
+                // 仍在说话
+                this.lastSpeechTime = now;
+                this.silenceStartTime = 0;
+            } else {
+                // 检测到静音
+                if (this.silenceStartTime === 0) {
+                    this.silenceStartTime = now;
+                    console.log(`[VAD] 🔇 检测到静音，等待持续 ${this.silenceDuration}ms...`);
+                }
+
+                const silenceDuration = now - this.silenceStartTime;
+                if (silenceDuration >= this.silenceDuration) {
+                    // 持续静音超过阈值，说话结束
+                    const speakDuration = this.lastSpeechTime - this.speechStartTime;
+                    this.state = 'IDLE';
+                    this.speechStartTime = 0;
+                    this.silenceStartTime = 0;
+                    this.preActiveStartTime = 0;
+
+                    console.log(`[VAD] ⏹️ 说话结束！总时长: ${(speakDuration / 1000).toFixed(1)}s, 静音: ${silenceDuration}ms`);
+
+                    if (this.onSpeakingEnd) {
+                        this.onSpeakingEnd();
+                    }
+                }
+            }
+        }
+
+        /**
+         * 判断能量是否持续上升
+         * @private
+         * @returns {boolean}
+         */
+        _isEnergyRising() {
+            if (this.energyTrend.length < 3) {
+                return false;
+            }
+
+            // 计算趋势：最近的能量 vs 早期的能量
+            const recentAvg = this._average(this.energyTrend.slice(-2));  // 最近 2 帧
+            const earlyAvg = this._average(this.energyTrend.slice(0, 2)); // 早期 2 帧
+
+            // 如果最近能量比早期能量高 20%，认为是上升趋势
+            return recentAvg > earlyAvg * 1.2;
+        }
+
+        /**
+         * 更新噪音基准
+         * @private
+         */
+        _updateNoiseBaseline(energy) {
+            // 只在静音时采样（避免把说话声音当作噪音）
+            this.noiseHistory.push(energy);
+
+            // 保留最近 30 个采样点
+            if (this.noiseHistory.length > 30) {
+                this.noiseHistory.shift();
+            }
+
+            // 重新计算噪音基准
+            const newBaseline = this._median(this.noiseHistory);
+
+            // 平滑更新（避免突变）
+            this.noiseBaseline = this.noiseBaseline * 0.8 + newBaseline * 0.2;
+            this.lastNoiseUpdateTime = Date.now();
+
+            console.log(`[VAD] 📊 噪音基准已更新: ${this.noiseBaseline.toFixed(1)}`);
+        }
+
+        /**
+         * 获取预激活阈值（低阈值）
+         * @returns {number}
+         */
+        getLowThreshold() {
+            if (!this.isCalibrated || this.noiseBaseline === null) {
+                return this.baseThreshold * 0.5;
+            }
+            return this.noiseBaseline * this.lowThresholdMultiplier;
+        }
+
+        /**
+         * 获取确认阈值（高阈值）
+         * @returns {number}
+         */
+        getHighThreshold() {
+            if (!this.isCalibrated || this.noiseBaseline === null) {
+                return this.baseThreshold;
+            }
+            return this.noiseBaseline * this.highThresholdMultiplier;
         }
 
         /**
@@ -1983,11 +2201,33 @@
         }
 
         /**
+         * 计算中位数
+         * @private
+         */
+        _median(array) {
+            if (array.length === 0) return 0;
+            const sorted = [...array].sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            return sorted.length % 2 === 0
+                ? (sorted[mid - 1] + sorted[mid]) / 2
+                : sorted[mid];
+        }
+
+        /**
+         * 计算平均值
+         * @private
+         */
+        _average(array) {
+            if (array.length === 0) return 0;
+            return array.reduce((sum, val) => sum + val, 0) / array.length;
+        }
+
+        /**
          * 获取当前是否在说话
          * @returns {boolean}
          */
         getSpeakingState() {
-            return this.isSpeaking;
+            return this.state === 'SPEAKING';
         }
 
         /**
@@ -1999,11 +2239,40 @@
         }
 
         /**
-         * 设置阈值
-         * @param {number} threshold - 新的能量阈值
+         * 获取当前状态
+         * @returns {string} 'IDLE' | 'PRE_ACTIVE' | 'SPEAKING'
          */
-        setThreshold(threshold) {
-            this.threshold = threshold;
+        getCurrentState() {
+            return this.state;
+        }
+
+        /**
+         * 获取噪音基准
+         * @returns {number|null}
+         */
+        getNoiseBaseline() {
+            return this.noiseBaseline;
+        }
+
+        /**
+         * 手动设置噪音基准（用于跳过自动校准）
+         * @param {number} baseline - 噪音基准值
+         */
+        setNoiseBaseline(baseline) {
+            this.noiseBaseline = baseline;
+            this.isCalibrated = true;
+            console.log(`[VAD] 手动设置噪音基准: ${baseline.toFixed(1)}`);
+        }
+
+        /**
+         * 设置阈值倍数
+         * @param {number} lowMultiplier - 预激活阈值倍数
+         * @param {number} highMultiplier - 确认阈值倍数
+         */
+        setThresholdMultipliers(lowMultiplier, highMultiplier) {
+            this.lowThresholdMultiplier = lowMultiplier;
+            this.highThresholdMultiplier = highMultiplier;
+            console.log(`[VAD] 阈值倍数已更新: 低=${lowMultiplier}, 高=${highMultiplier}`);
         }
 
         /**
@@ -2013,7 +2282,10 @@
             this.stop();
             this.onSpeakingStart = null;
             this.onSpeakingEnd = null;
+            this.onCalibrationComplete = null;
             this.dataArray = null;
+            this.noiseHistory = [];
+            this.energyTrend = [];
         }
     }
 
@@ -2534,7 +2806,9 @@
                 // 清空缓冲区中的所有旧视频组
                 if (this.circularBuffer) {
                     this.circularBuffer.clear();
-                    console.log('🗑️ Cleared captured video groups to prevent duplicates');
+                    // 立即启动新的录制组，因为主 MediaRecorder 仍在运行
+                    this.circularBuffer.startNewGroup(Date.now());
+                    console.log('🗑️ Cleared captured video groups and started new group');
                 }
 
                 // 清理临时数据

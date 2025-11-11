@@ -266,9 +266,17 @@ export class VideoAutoCaptureManager {
     _handleSpeakingStart() {
         console.log('🗣️ Speaking started');
 
-        // 1. 快照当前所有已完成的视频组（说话前的 N 组）
+        // 1. 快照当前所有视频组（说话前的 N 组），包括正在录制的组
         this.snapshotGroups = this.circularBuffer.getAllGroups();
-        console.log(`📦 Snapshot ${this.snapshotGroups.length} groups before speaking`);
+
+        // 添加当前正在录制的组（如果有）
+        const currentGroup = this.circularBuffer.getCurrentGroup();
+        if (currentGroup) {
+            this.snapshotGroups.push(currentGroup);
+            console.log(`📦 Snapshot ${this.snapshotGroups.length} groups before speaking (${this.snapshotGroups.length - 1} completed + 1 recording)`);
+        } else {
+            console.log(`📦 Snapshot ${this.snapshotGroups.length} groups before speaking (all completed)`);
+        }
 
         // 2. 触发用户回调
         if (this.onSpeakingStart) {
@@ -380,6 +388,17 @@ export class VideoAutoCaptureManager {
             });
 
             console.log(`✅ Total video groups: ${videoGroups.length} (${this.snapshotGroups.length} before + 1 speaking)`);
+
+            // 打印详细的视频组信息
+            console.log('📹 Video groups details:');
+            videoGroups.forEach((group, index) => {
+                console.log(`  [${index + 1}] ${group.type}:`, {
+                    duration: `${(group.duration / 1000).toFixed(1)}s`,
+                    size: `${(group.size / 1024 / 1024).toFixed(2)} MB`,
+                    startTime: new Date(group.startTime).toISOString(),
+                    endTime: new Date(group.endTime).toISOString()
+                });
+            });
 
             // 触发视频捕获回调
             if (this.onVideoCapture) {

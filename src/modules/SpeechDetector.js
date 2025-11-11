@@ -289,6 +289,20 @@ export class SpeechDetector {
             if (silenceDuration >= this.silenceDuration) {
                 // 持续静音超过阈值，说话结束
                 const speakDuration = this.lastSpeechTime - this.speechStartTime;
+
+                // ✅ 验证说话时长是否满足最小要求
+                if (speakDuration < this.minSpeakDuration) {
+                    console.log(`[VAD] ⚠️ 说话时长不足 (${(speakDuration / 1000).toFixed(1)}s < ${(this.minSpeakDuration / 1000).toFixed(1)}s)，忽略此次说话`);
+
+                    // 重置状态，不触发回调
+                    this.state = 'IDLE';
+                    this.speechStartTime = 0;
+                    this.silenceStartTime = 0;
+                    this.preActiveStartTime = 0;
+                    return;
+                }
+
+                // 说话时长有效，触发回调
                 this.state = 'IDLE';
                 this.speechStartTime = 0;
                 this.silenceStartTime = 0;

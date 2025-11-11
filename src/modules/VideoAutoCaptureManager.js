@@ -15,14 +15,24 @@ export class VideoAutoCaptureManager {
 
         // 配置参数
         this.config = {
+            // 视频录制配置
             maxGroups: options.maxGroups || 2,                    // 保留的视频组数量（默认 2 组）
             groupDuration: options.groupDuration || 5000,         // 每组视频时长（默认 5000ms = 5 秒）
-            speechThreshold: options.speechThreshold || 40,       // 说话检测阈值
-            silenceDuration: options.silenceDuration || 2000,     // 静音持续时间
-            minSpeakDuration: options.minSpeakDuration || 900,    // 最小说话时长（默认 900ms）
             maxRecordDuration: options.maxRecordDuration || 300000, // 最大录制时长（5 分钟）
             videoFormat: options.videoFormat || 'video/webm',
-            videoBitsPerSecond: options.videoBitsPerSecond || 2500000
+            videoBitsPerSecond: options.videoBitsPerSecond || 2500000,
+
+            // VAD 基础配置
+            speechThreshold: options.speechThreshold || 30,       // 基础阈值（默认 30）
+            silenceDuration: options.silenceDuration || 2000,     // 静音持续时间（默认 2000ms）
+            minSpeakDuration: options.minSpeakDuration || 900,    // 最小说话时长（默认 900ms）
+
+            // VAD 高级配置
+            calibrationDuration: options.calibrationDuration || 3000,      // 校准时长（默认 3000ms）
+            noiseUpdateInterval: options.noiseUpdateInterval || 10000,     // 噪音基准更新间隔（默认 10000ms）
+            minThreshold: options.minThreshold !== undefined ? options.minThreshold : 20,  // 动态阈值最小值（默认 20）
+            lowThresholdMultiplier: options.lowThresholdMultiplier || 1.5,  // 预激活阈值倍数（默认 1.5）
+            highThresholdMultiplier: options.highThresholdMultiplier || 3.0 // 确认阈值倍数（默认 3.0）
         };
 
         // 回调函数
@@ -152,7 +162,12 @@ export class VideoAutoCaptureManager {
         this.speechDetector = new SpeechDetector(this.audioAnalyser, {
             threshold: this.config.speechThreshold,
             silenceDuration: this.config.silenceDuration,
-            minSpeakDuration: this.config.minSpeakDuration
+            minSpeakDuration: this.config.minSpeakDuration,
+            calibrationDuration: this.config.calibrationDuration,
+            noiseUpdateInterval: this.config.noiseUpdateInterval,
+            minThreshold: this.config.minThreshold,
+            lowThresholdMultiplier: this.config.lowThresholdMultiplier,
+            highThresholdMultiplier: this.config.highThresholdMultiplier
         });
 
         // 说话开始事件

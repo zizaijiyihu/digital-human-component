@@ -341,6 +341,19 @@ export class VideoAutoCaptureManager {
 
             console.log(`📹 Speaking video: ${(duration / 1000).toFixed(1)}s, ${(speakingBlob.size / 1024 / 1024).toFixed(2)} MB, ${this.speakingChunks.length} chunks`);
 
+            // ✅ 验证说话时长是否满足最小要求
+            if (duration < this.config.minSpeakDuration) {
+                console.log(`⚠️ Speaking duration too short (${duration}ms < ${this.config.minSpeakDuration}ms), discarding video`);
+
+                // 清理临时数据（不发送视频）
+                this.snapshotGroups = null;
+                this.speakingChunks = [];
+                this.speakingStartTime = null;
+                this.speakingRecorder = null;
+
+                return; // 直接返回，不触发回调
+            }
+
             // 构建视频组数组（说话前的 N 组 + 说话期间的 1 组）
             const videoGroups = [];
 

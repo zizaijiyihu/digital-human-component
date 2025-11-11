@@ -16,7 +16,7 @@ export class VideoAutoCaptureManager {
         // 配置参数
         this.config = {
             // 视频录制配置
-            maxGroups: options.maxGroups || 2,                    // 保留的视频组数量（默认 2 组）
+            maxGroups: options.maxGroups || 1,                    // 保留的视频组数量（默认 1 组）
             groupDuration: options.groupDuration || 5000,         // 每组视频时长（默认 5000ms = 5 秒）
             maxRecordDuration: options.maxRecordDuration || 300000, // 最大录制时长（5 分钟）
             videoFormat: options.videoFormat || 'video/webm',

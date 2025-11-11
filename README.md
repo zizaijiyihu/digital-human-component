@@ -624,7 +624,7 @@ avatar.on('videoCallError', ({ error }) => {
 ### 什么是视频自动采集？
 
 视频自动采集功能采用**分组录制架构**，自动录制用户说话的视频片段，包含：
-- 📹 **说话前的 N 组视频**（默认 2 组，每组 5 秒，可自定义）
+- 📹 **说话前的 N 组视频**（默认 1 组，每组 5 秒，可自定义）
 - 🗣️ **说话期间的 1 组视频**（完整录制说话过程）
 - 💾 自动将视频组数组传递给回调函数处理（上传/保存等）
 - ✅ **每个视频组都是完整可播放的 WebM 文件**（包含 header）
@@ -681,7 +681,7 @@ await avatar.enableVideoAutoCapture({
     },
 
     // ===== 视频录制配置 =====
-    maxGroups: 2,                   // 保留的视频组数量（默认 2 组）
+    maxGroups: 1,                   // 保留的视频组数量（默认 1 组）
     groupDuration: 5000,            // 每组视频时长（默认 5000ms = 5 秒）
     maxRecordDuration: 300000,      // 最大录制时长（默认 300000ms = 5 分钟）
     videoFormat: 'video/webm',      // 视频格式（默认 'video/webm'）
@@ -744,12 +744,12 @@ avatar.disableVideoAutoCapture();
       每 5 秒 MediaRecorder 重启一次（生成新 header）
       每组都是完整可播放的 WebM 文件
 
-循环保留最近 N 组（默认 2 组）：
-时间： 0s ──── 5s ──── 10s ──── 15s
-       [组#1]  [组#2]  [组#3]  [组#4]
-        删除    删除    保留    保留 ← 循环缓冲区
+循环保留最近 N 组（默认 1 组）：
+时间： 0s ──── 5s ──── 10s ──── 12s
+       [组#1]  [组#2]  [组#3]
+        删除    保留    录制中 ← 循环缓冲区
 
-检测到说话开始 🗣️
+检测到说话开始 🗣️（12s）
     ↓
 快照说话前的 N 组 + 录制说话期间的 1 组
     ↓
@@ -757,9 +757,9 @@ avatar.disableVideoAutoCapture();
     ↓
 传递视频组数组给回调：
 [
-  { blob, type: 'before-speaking', duration: 5000ms },  ← 说话前的组 #1
-  { blob, type: 'before-speaking', duration: 5000ms },  ← 说话前的组 #2
-  { blob, type: 'speaking', duration: 8000ms }          ← 说话期间的组
+  { blob, type: 'before-speaking', duration: 5000ms },  ← 说话前的组（已完成）
+  { blob, type: 'before-speaking', duration: 2000ms },  ← 说话前的组（正在录制）
+  { blob, type: 'speaking', duration: 3000ms }          ← 说话期间的组
 ]
     ↓
 清空已捕获的视频组（防止重复）
@@ -777,7 +777,7 @@ avatar.disableVideoAutoCapture();
     onVideoCapture: (videoGroups) => {},  // 视频捕获回调（接收视频组数组）
 
     // ===== 视频录制配置 =====
-    maxGroups: 2,                   // 保留的视频组数量，默认 2
+    maxGroups: 1,                   // 保留的视频组数量，默认 1
     groupDuration: 5000,            // 每组视频时长（毫秒），默认 5000
     maxRecordDuration: 300000,      // 最大录制时长（毫秒），默认 300000（5分钟）
     videoFormat: 'video/webm',      // 视频格式，默认 'video/webm'
@@ -890,7 +890,7 @@ await avatar.enterVideoCallMode({
 // 启动视频自动采集
 await avatar.enableVideoAutoCapture({
     // 视频录制配置
-    maxGroups: 2,             // 保留 2 组视频（默认 2）
+    maxGroups: 1,             // 保留 1 组视频（默认 1）
     groupDuration: 5000,      // 每组 5 秒（默认 5000ms）
 
     // VAD 配置（使用默认值即可，会自动校准）

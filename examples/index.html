@@ -161,8 +161,8 @@
                 <button id="btnDisableCapture" disabled>⏹ 停止视频采集</button>
                 <button id="btnDownloadGroups" disabled>💾 下载所有视频组</button>
                 <div style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 8px;">
-                    💡 循环录制 2 组视频，每组 5 秒<br>
-                    🎤 说话时自动捕获：说话前的 2 组 + 说话期间的 1 组<br>
+                    💡 循环录制 1 组视频，每组 5 秒<br>
+                    🎤 说话时自动捕获：说话前的 1-2 组 + 说话期间的 1 组<br>
                     📊 采集状态：<span id="captureStatus">未启动</span><br>
                     🎚️ 音频能量：<span id="audioEnergy">--</span><br>
                     📏 动态阈值：[<span id="lowThreshold">--</span>, <span id="highThreshold">--</span>]<br>
@@ -597,7 +597,7 @@
                 btnEnableCapture.disabled = true;
                 btnDisableCapture.disabled = false;
                 btnDownloadGroups.disabled = false;   // 立即可用！随时下载视频组
-                captureStatus.textContent = '⏸️ 待机中（循环录制 2 组）';
+                captureStatus.textContent = '⏸️ 待机中（循环录制 1 组）';
                 captureStatus.style.color = '#44ff44';
 
                 // 启动能量监控
@@ -640,8 +640,8 @@
                     }
                 }, 100); // 每100ms更新一次
 
-                updateStatus('✅ 视频自动采集已启动（2 组 × 5 秒）');
-                console.log('✅ 视频自动采集已启动：2 组 × 5 秒');
+                updateStatus('✅ 视频自动采集已启动（1 组 × 5 秒）');
+                console.log('✅ 视频自动采集已启动：1 组 × 5 秒');
 
             } catch (error) {
                 console.error('启动视频采集失败:', error);

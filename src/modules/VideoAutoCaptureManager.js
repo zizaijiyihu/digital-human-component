@@ -19,7 +19,7 @@ export class VideoAutoCaptureManager {
             groupDuration: options.groupDuration || 5000,         // 每组视频时长（默认 5000ms = 5 秒）
             speechThreshold: options.speechThreshold || 40,       // 说话检测阈值
             silenceDuration: options.silenceDuration || 2000,     // 静音持续时间
-            minSpeakDuration: options.minSpeakDuration || 500,    // 最小说话时长
+            minSpeakDuration: options.minSpeakDuration || 900,    // 最小说话时长（默认 900ms）
             maxRecordDuration: options.maxRecordDuration || 300000, // 最大录制时长（5 分钟）
             videoFormat: options.videoFormat || 'video/webm',
             videoBitsPerSecond: options.videoBitsPerSecond || 2500000

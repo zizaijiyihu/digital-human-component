@@ -14,15 +14,16 @@ export class SpeechDetector {
         // 配置参数
         this.baseThreshold = options.threshold || 30;                // 基础阈值（仅用于未校准时）
         this.silenceDuration = options.silenceDuration || 2000;      // 静音持续时间（默认 2000ms）
-        this.minSpeakDuration = options.minSpeakDuration || 500;     // 最小说话时长（默认 500ms）
+        this.minSpeakDuration = options.minSpeakDuration || 900;     // 最小说话时长（默认 900ms）
         this.calibrationDuration = options.calibrationDuration || 3000;  // 校准时长（默认 3000ms）
         this.noiseUpdateInterval = options.noiseUpdateInterval || 10000; // 噪音基准更新间隔（默认 10s）
 
         // 动态阈值参数
         this.noiseBaseline = null;              // 背景噪音基准
         this.noiseHistory = [];                 // 噪音历史（用于计算基准）
-        this.lowThresholdMultiplier = 1.5;      // 预激活阈值倍数
-        this.highThresholdMultiplier = 3.0;     // 确认说话阈值倍数
+        this.lowThresholdMultiplier = options.lowThresholdMultiplier || 1.5;      // 预激活阈值倍数
+        this.highThresholdMultiplier = options.highThresholdMultiplier || 3.0;     // 确认说话阈值倍数
+        this.minThreshold = options.minThreshold || 20;             // 动态阈值的最小值（默认 20）
         this.isCalibrated = false;              // 是否已校准
         this.lastNoiseUpdateTime = 0;           // 上次更新噪音基准的时间
 
@@ -349,9 +350,10 @@ export class SpeechDetector {
      */
     getLowThreshold() {
         if (!this.isCalibrated || this.noiseBaseline === null) {
-            return this.baseThreshold * 0.5;
+            return Math.max(this.baseThreshold * 0.5, this.minThreshold);
         }
-        return this.noiseBaseline * this.lowThresholdMultiplier;
+        const dynamicThreshold = this.noiseBaseline * this.lowThresholdMultiplier;
+        return Math.max(dynamicThreshold, this.minThreshold);
     }
 
     /**
@@ -360,9 +362,10 @@ export class SpeechDetector {
      */
     getHighThreshold() {
         if (!this.isCalibrated || this.noiseBaseline === null) {
-            return this.baseThreshold;
+            return Math.max(this.baseThreshold, this.minThreshold * 1.5);
         }
-        return this.noiseBaseline * this.highThresholdMultiplier;
+        const dynamicThreshold = this.noiseBaseline * this.highThresholdMultiplier;
+        return Math.max(dynamicThreshold, this.minThreshold * 1.5);
     }
 
     /**

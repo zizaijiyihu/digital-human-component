@@ -699,7 +699,7 @@ await avatar.enableVideoAutoCapture({
     silenceDuration: 2000,          // 静音持续时间（默认 2000ms）
                                     // 检测到静音后，持续多久才认为说话结束
 
-    minSpeakDuration: 500,          // 最小说话时长（默认 500ms）
+    minSpeakDuration: 900,          // 最小说话时长（默认 900ms）
                                     // 过滤太短的声音（避免误触发）
 
     // ===== VAD 高级配置（可选，一般不需要修改）=====
@@ -709,11 +709,14 @@ await avatar.enableVideoAutoCapture({
     noiseUpdateInterval: 10000,     // 噪音基准更新间隔（默认 10000ms = 10 秒）
                                     // 定期重新采样背景噪音，适应环境变化
 
+    minThreshold: 20,               // 动态阈值的最小值（默认 20）
+                                    // 确保即使在极安静环境下，阈值也不会太低
+
     lowThresholdMultiplier: 1.5,    // 预激活阈值倍数（默认 1.5）
-                                    // 预激活阈值 = 背景噪音基准 × 1.5
+                                    // 预激活阈值 = max(背景噪音基准 × 1.5, minThreshold)
 
     highThresholdMultiplier: 3.0,   // 确认阈值倍数（默认 3.0）
-                                    // 确认说话阈值 = 背景噪音基准 × 3.0
+                                    // 确认说话阈值 = max(背景噪音基准 × 3.0, minThreshold × 1.5)
 
     // ===== 回调函数 =====
     onSpeakingStart: () => {
@@ -783,11 +786,12 @@ avatar.disableVideoAutoCapture();
     // 🆕 智能 VAD：动态自适应阈值 + 预激活机制
     speechThreshold: 30,            // 基础阈值（仅用于未校准时），默认 30
     silenceDuration: 2000,          // 静音持续时间（毫秒），默认 2000
-    minSpeakDuration: 500,          // 最小说话时长（毫秒），默认 500
+    minSpeakDuration: 900,          // 最小说话时长（毫秒），默认 900
 
     // ===== VAD 高级配置（可选）=====
     calibrationDuration: 3000,      // 校准时长（毫秒），默认 3000
     noiseUpdateInterval: 10000,     // 噪音基准更新间隔（毫秒），默认 10000
+    minThreshold: 20,               // 动态阈值的最小值，默认 20
     lowThresholdMultiplier: 1.5,    // 预激活阈值倍数，默认 1.5
     highThresholdMultiplier: 3.0,   // 确认阈值倍数，默认 3.0
 
@@ -891,7 +895,7 @@ await avatar.enableVideoAutoCapture({
     // VAD 配置（使用默认值即可，会自动校准）
     speechThreshold: 30,      // 基础阈值（默认 30）
     silenceDuration: 2000,    // 静音持续时间（默认 2000ms）
-    minSpeakDuration: 500,    // 最小说话时长（默认 500ms）
+    minSpeakDuration: 900,    // 最小说话时长（默认 900ms）
 
     onVideoCapture: async (videoGroups) => {
         console.log(`📹 捕获到 ${videoGroups.length} 个视频组`);
@@ -1002,6 +1006,17 @@ setInterval(() => {
   - 环境固定：15000ms - 20000ms
   - 环境多变：5000ms - 8000ms
 
+**minThreshold（动态阈值最小值）**：
+- **默认值**：20
+- **说明**：确保即使在极安静环境下，阈值也不会太低，避免误触发
+- **调整建议**：
+  - 更敏感（容易触发）：15 - 18
+  - 默认（推荐）：20
+  - 更保守（减少误触发）：22 - 25
+- **工作原理**：
+  - 预激活阈值 = max(背景噪音基准 × 1.5, minThreshold)
+  - 确认阈值 = max(背景噪音基准 × 3.0, minThreshold × 1.5)
+
 #### 2. silenceDuration（静音持续时间）
 - **默认值**：2000ms
 - **说明**：检测到静音后，持续多久才认为说话结束
@@ -1011,12 +1026,12 @@ setInterval(() => {
   - 避免过短（会截断句子）或过长（视频过大）
 
 #### 3. minSpeakDuration（最小说话时长）
-- **默认值**：500ms
+- **默认值**：900ms
 - **说明**：过滤太短的声音，避免误触发
 - **调整建议**：
-  - 更敏感：300ms - 400ms
-  - 默认（推荐）：500ms
-  - 更保守：600ms - 800ms
+  - 更敏感：600ms - 800ms
+  - 默认（推荐）：900ms
+  - 更保守：1000ms - 1200ms
 
 #### 4. maxRecordDuration（最大录制时长）
 - **默认值**：300000ms（5 分钟）

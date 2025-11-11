@@ -377,7 +377,9 @@ export class VideoAutoCaptureManager {
             // 清空缓冲区中的所有旧视频组
             if (this.circularBuffer) {
                 this.circularBuffer.clear();
-                console.log('🗑️ Cleared captured video groups to prevent duplicates');
+                // 立即启动新的录制组，因为主 MediaRecorder 仍在运行
+                this.circularBuffer.startNewGroup(Date.now());
+                console.log('🗑️ Cleared captured video groups and started new group');
             }
 
             // 清理临时数据

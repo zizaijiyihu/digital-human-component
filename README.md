@@ -680,17 +680,42 @@ await avatar.enableVideoAutoCapture({
         });
     },
 
-    // 可选配置
+    // ===== 视频录制配置 =====
     maxGroups: 1,                   // 保留的视频组数量（默认 1 组）
     groupDuration: 5000,            // 每组视频时长（默认 5000ms = 5 秒）
-    speechThreshold: 40,            // 说话检测阈值（默认 40）
-    silenceDuration: 2000,          // 静音持续时间（默认 2000ms）
-    minSpeakDuration: 500,          // 最小说话时长（默认 500ms）
-    maxRecordDuration: 300000,      // 最大录制时长（默认 5 分钟）
-    videoFormat: 'video/webm',      // 视频格式（默认 webm）
-    videoBitsPerSecond: 2500000,    // 视频比特率（默认 2.5 Mbps）
+    maxRecordDuration: 300000,      // 最大录制时长（默认 300000ms = 5 分钟）
+    videoFormat: 'video/webm',      // 视频格式（默认 'video/webm'）
+    videoBitsPerSecond: 2500000,    // 视频比特率（默认 2500000 = 2.5 Mbps）
 
-    // 可选回调
+    // ===== VAD（语音活动检测）配置 =====
+    // 🆕 智能 VAD：动态自适应阈值 + 预激活机制
+    // - 自动校准：启动后 3 秒自动检测环境噪音，无需手动设置阈值
+    // - 预激活机制：低能量也能触发预激活，能量持续上升则确认为说话
+    // - 三状态机：IDLE（待机）→ PRE_ACTIVE（预激活）→ SPEAKING（说话中）
+
+    speechThreshold: 30,            // 基础阈值（仅用于未校准时，默认 30）
+                                    // 实际阈值 = 背景噪音基准 × 倍数（自动计算）
+
+    silenceDuration: 2000,          // 静音持续时间（默认 2000ms）
+                                    // 检测到静音后，持续多久才认为说话结束
+
+    minSpeakDuration: 500,          // 最小说话时长（默认 500ms）
+                                    // 过滤太短的声音（避免误触发）
+
+    // ===== VAD 高级配置（可选，一般不需要修改）=====
+    calibrationDuration: 3000,      // 校准时长（默认 3000ms = 3 秒）
+                                    // 启动后的校准时间，用于采样背景噪音
+
+    noiseUpdateInterval: 10000,     // 噪音基准更新间隔（默认 10000ms = 10 秒）
+                                    // 定期重新采样背景噪音，适应环境变化
+
+    lowThresholdMultiplier: 1.5,    // 预激活阈值倍数（默认 1.5）
+                                    // 预激活阈值 = 背景噪音基准 × 1.5
+
+    highThresholdMultiplier: 3.0,   // 确认阈值倍数（默认 3.0）
+                                    // 确认说话阈值 = 背景噪音基准 × 3.0
+
+    // ===== 回调函数 =====
     onSpeakingStart: () => {
         console.log('检测到说话开始');
     },
@@ -746,15 +771,24 @@ avatar.disableVideoAutoCapture();
     // ===== 必选参数 =====
     onVideoCapture: (videoGroups) => {},  // 视频捕获回调（接收视频组数组）
 
-    // ===== 可选配置 =====
+    // ===== 视频录制配置 =====
     maxGroups: 1,                   // 保留的视频组数量，默认 1
     groupDuration: 5000,            // 每组视频时长（毫秒），默认 5000
-    speechThreshold: 40,            // 说话检测阈值（0-255），默认 40
-    silenceDuration: 2000,          // 判定为静音的持续时间（毫秒），默认 2000
-    minSpeakDuration: 500,          // 最小说话时长（毫秒），默认 500
     maxRecordDuration: 300000,      // 最大录制时长（毫秒），默认 300000（5分钟）
     videoFormat: 'video/webm',      // 视频格式，默认 'video/webm'
     videoBitsPerSecond: 2500000,    // 视频比特率，默认 2500000（2.5 Mbps）
+
+    // ===== VAD（语音活动检测）配置 =====
+    // 🆕 智能 VAD：动态自适应阈值 + 预激活机制
+    speechThreshold: 30,            // 基础阈值（仅用于未校准时），默认 30
+    silenceDuration: 2000,          // 静音持续时间（毫秒），默认 2000
+    minSpeakDuration: 500,          // 最小说话时长（毫秒），默认 500
+
+    // ===== VAD 高级配置（可选）=====
+    calibrationDuration: 3000,      // 校准时长（毫秒），默认 3000
+    noiseUpdateInterval: 10000,     // 噪音基准更新间隔（毫秒），默认 10000
+    lowThresholdMultiplier: 1.5,    // 预激活阈值倍数，默认 1.5
+    highThresholdMultiplier: 3.0,   // 确认阈值倍数，默认 3.0
 
     // ===== 可选回调 =====
     onSpeakingStart: () => {},      // 说话开始回调
@@ -849,9 +883,14 @@ await avatar.enterVideoCallMode({
 
 // 启动视频自动采集
 await avatar.enableVideoAutoCapture({
+    // 视频录制配置
     maxGroups: 1,             // 保留 1 组视频
     groupDuration: 5000,      // 每组 5 秒
-    speechThreshold: 40,
+
+    // VAD 配置（使用默认值即可，会自动校准）
+    speechThreshold: 30,      // 基础阈值（默认 30）
+    silenceDuration: 2000,    // 静音持续时间（默认 2000ms）
+    minSpeakDuration: 500,    // 最小说话时长（默认 500ms）
 
     onVideoCapture: async (videoGroups) => {
         console.log(`📹 捕获到 ${videoGroups.length} 个视频组`);
@@ -917,23 +956,70 @@ setInterval(() => {
 
 ### 参数调优建议
 
-#### 1. speechThreshold（说话检测阈值）
-- **默认值**：40
-- **范围**：0-255
+#### 1. VAD（语音活动检测）参数
+
+🆕 **智能 VAD 特性**：
+- **自动校准**：启动后 3 秒自动检测环境噪音，无需手动设置阈值
+- **动态阈值**：根据背景噪音自动调整检测阈值
+- **预激活机制**：低能量也能触发预激活，能量持续上升则确认为说话
+
+**speechThreshold（基础阈值）**：
+- **默认值**：30（仅用于未校准时）
+- **说明**：校准完成后，实际使用动态阈值 = 背景噪音基准 × 倍数
 - **调整建议**：
-  - 环境安静：30-35（更敏感）
-  - 环境嘈杂：45-50（更保守）
-  - 可通过 `getVideoAutoCaptureStatus()` 监控实时音频能量
+  - 一般情况：使用默认值 30 即可，让 VAD 自动校准
+  - 特殊环境：如果自动校准效果不佳，可适当调整基础阈值
+  - 可通过 `getVideoAutoCaptureStatus()` 监控实时音频能量和阈值
+
+**lowThresholdMultiplier（预激活阈值倍数）**：
+- **默认值**：1.5
+- **说明**：预激活阈值 = 背景噪音基准 × 1.5
+- **调整建议**：
+  - 更敏感（容易触发）：1.2 - 1.4
+  - 默认（推荐）：1.5
+  - 更保守（减少误触发）：1.6 - 2.0
+
+**highThresholdMultiplier（确认阈值倍数）**：
+- **默认值**：3.0
+- **说明**：确认说话阈值 = 背景噪音基准 × 3.0
+- **调整建议**：
+  - 更快确认：2.5 - 2.8
+  - 默认（推荐）：3.0
+  - 更保守：3.2 - 4.0
+
+**calibrationDuration（校准时长）**：
+- **默认值**：3000ms（3 秒）
+- **说明**：启动后的校准时间，用于采样背景噪音
+- **调整建议**：
+  - 环境稳定：2000ms（2 秒）
+  - 环境复杂：4000ms - 5000ms（4-5 秒）
+
+**noiseUpdateInterval（噪音基准更新间隔）**：
+- **默认值**：10000ms（10 秒）
+- **说明**：定期重新采样背景噪音，适应环境变化
+- **调整建议**：
+  - 环境固定：15000ms - 20000ms
+  - 环境多变：5000ms - 8000ms
 
 #### 2. silenceDuration（静音持续时间）
 - **默认值**：2000ms
+- **说明**：检测到静音后，持续多久才认为说话结束
 - **调整建议**：
   - 快节奏对话：1500ms
   - 思考型回答：3000ms
   - 避免过短（会截断句子）或过长（视频过大）
 
-#### 3. maxRecordDuration（最大录制时长）
+#### 3. minSpeakDuration（最小说话时长）
+- **默认值**：500ms
+- **说明**：过滤太短的声音，避免误触发
+- **调整建议**：
+  - 更敏感：300ms - 400ms
+  - 默认（推荐）：500ms
+  - 更保守：600ms - 800ms
+
+#### 4. maxRecordDuration（最大录制时长）
 - **默认值**：300000ms（5 分钟）
+- **说明**：单次说话的最大录制时长
 - **调整建议**：
   - 短问答：60000ms（1 分钟）
   - 详细描述：600000ms（10 分钟）

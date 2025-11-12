@@ -1207,9 +1207,21 @@ const avatar = new DigitalHuman({
    - 支持打断流式音频（`speakStreaming`）
    - 会自动清理音频队列，停止后续音频播放
 
-4. **推荐配置**：
+4. **回音消除问题**（重要！）：
+   - 🎯 **启用打断功能时，系统会自动禁用 `echoCancellation`**
+   - 原因：回音消除会把用户说话当成"回音"过滤掉，导致打断功能失效
+   - 建议：**使用耳机**以避免回音问题
+   - 如需手动控制：
+   ```javascript
+   await avatar.enterVideoCallMode({
+       echoCancellation: true  // 手动启用（会影响打断功能）
+   });
+   ```
+
+5. **推荐配置**：
    - 配合较低的 `speechThreshold`（如 30）以提高检测灵敏度
    - 配合较短的 `minSpeakDuration`（如 900ms）以快速响应
+   - **使用耳机**以获得最佳效果
 
 ### 完整示例
 

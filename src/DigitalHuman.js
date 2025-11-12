@@ -739,14 +739,20 @@ export class DigitalHuman extends EventEmitter {
 
         try {
             // 获取本地摄像头和麦克风
-            // 注意：echoCancellation 可能会在数字人说话时过滤用户声音
+            // 注意：当启用打断功能时，需要禁用 echoCancellation，否则用户声音会被过滤
+            const shouldDisableEcho = this.config.enableInterruption && options.echoCancellation === undefined;
+
             const audioConstraints = {
-                echoCancellation: options.echoCancellation !== false,  // 默认 true，可配置
+                echoCancellation: shouldDisableEcho ? false : (options.echoCancellation !== false),  // 打断功能启用时自动禁用
                 noiseSuppression: options.noiseSuppression !== false,  // 默认 true，可配置
                 autoGainControl: options.autoGainControl !== false     // 默认 true，可配置
             };
 
             console.log('[VideoCall] Audio constraints:', audioConstraints);
+            if (shouldDisableEcho) {
+                console.log('[VideoCall] ⚠️ Auto-disabled echoCancellation because enableInterruption is enabled');
+                console.log('[VideoCall] 💡 This may cause echo. Use headphones or manually enable echoCancellation if needed.');
+            }
 
             this.localMediaStream = await navigator.mediaDevices.getUserMedia({
                 video: {

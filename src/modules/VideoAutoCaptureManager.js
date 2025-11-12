@@ -1,4 +1,5 @@
 import { SpeechDetector } from './SpeechDetector.js';
+import { MLVADDetector } from './MLVADDetector.js';
 import { CircularVideoBuffer } from './CircularVideoBuffer.js';
 
 /**
@@ -32,7 +33,10 @@ export class VideoAutoCaptureManager {
             noiseUpdateInterval: options.noiseUpdateInterval || 10000,     // 噪音基准更新间隔（默认 10000ms）
             minThreshold: options.minThreshold !== undefined ? options.minThreshold : 20,  // 动态阈值最小值（默认 20）
             lowThresholdMultiplier: options.lowThresholdMultiplier || 1.5,  // 预激活阈值倍数（默认 1.5）
-            highThresholdMultiplier: options.highThresholdMultiplier || 3.0 // 确认阈值倍数（默认 3.0）
+            highThresholdMultiplier: options.highThresholdMultiplier || 3.0, // 确认阈值倍数（默认 3.0）
+
+            // VAD 类型选择
+            useMLVAD: options.useMLVAD !== false  // 默认使用 ML-based VAD（更准确）
         };
 
         // 回调函数
@@ -76,11 +80,13 @@ export class VideoAutoCaptureManager {
             // 1. 初始化循环缓冲区
             this.circularBuffer = new CircularVideoBuffer(this.config.maxGroups);
 
-            // 2. 初始化音频分析器
-            this._initAudioAnalyser();
+            // 2. 初始化音频分析器（仅在使用传统 VAD 时需要）
+            if (!this.config.useMLVAD) {
+                this._initAudioAnalyser();
+            }
 
             // 3. 初始化说话检测器
-            this._initSpeechDetector();
+            await this._initSpeechDetector();
 
             // 4. 初始化 MediaRecorder
             this._initMediaRecorder();
@@ -152,6 +158,18 @@ export class VideoAutoCaptureManager {
 
         const source = this.audioContext.createMediaStreamSource(this.mediaStream);
         source.connect(this.audioAnalyser);
+
+        // 调试：检查音频轨道状态
+        const audioTracks = this.mediaStream.getAudioTracks();
+        console.log('[AudioAnalyser] Audio tracks:', audioTracks.length);
+        audioTracks.forEach((track, index) => {
+            console.log(`[AudioAnalyser] Track ${index}:`, {
+                enabled: track.enabled,
+                muted: track.muted,
+                readyState: track.readyState,
+                label: track.label
+            });
+        });
     }
 
     /**
@@ -159,16 +177,29 @@ export class VideoAutoCaptureManager {
      * @private
      */
     _initSpeechDetector() {
-        this.speechDetector = new SpeechDetector(this.audioAnalyser, {
-            threshold: this.config.speechThreshold,
-            silenceDuration: this.config.silenceDuration,
-            minSpeakDuration: this.config.minSpeakDuration,
-            calibrationDuration: this.config.calibrationDuration,
-            noiseUpdateInterval: this.config.noiseUpdateInterval,
-            minThreshold: this.config.minThreshold,
-            lowThresholdMultiplier: this.config.lowThresholdMultiplier,
-            highThresholdMultiplier: this.config.highThresholdMultiplier
-        });
+        if (this.config.useMLVAD) {
+            console.log('[VAD] Using ML-based VAD (recommended for better accuracy)');
+
+            // 使用 ML-based VAD
+            this.speechDetector = new MLVADDetector(this.mediaStream, {
+                silenceDuration: this.config.silenceDuration,
+                minSpeakDuration: this.config.minSpeakDuration
+            });
+        } else {
+            console.log('[VAD] Using energy-based VAD');
+
+            // 使用传统的能量阈值 VAD
+            this.speechDetector = new SpeechDetector(this.audioAnalyser, {
+                threshold: this.config.speechThreshold,
+                silenceDuration: this.config.silenceDuration,
+                minSpeakDuration: this.config.minSpeakDuration,
+                calibrationDuration: this.config.calibrationDuration,
+                noiseUpdateInterval: this.config.noiseUpdateInterval,
+                minThreshold: this.config.minThreshold,
+                lowThresholdMultiplier: this.config.lowThresholdMultiplier,
+                highThresholdMultiplier: this.config.highThresholdMultiplier
+            });
+        }
 
         // 说话开始事件
         this.speechDetector.onSpeakingStart = () => {

@@ -74,10 +74,6 @@ export class SpeechDetector {
         this.isCalibrated = false;
         this.noiseBaseline = null;
 
-        console.log('🎙️ SpeechDetector 启动中...');
-        console.log(`   - 校准时长: ${this.calibrationDuration}ms`);
-        console.log(`   - 检测间隔: ${interval}ms`);
-
         // 开始校准阶段
         this._startCalibration(interval);
 
@@ -93,8 +89,6 @@ export class SpeechDetector {
      * @private
      */
     _startCalibration(interval) {
-        console.log('📊 开始校准背景噪音...');
-
         const calibrationStartTime = Date.now();
         const calibrationInterval = setInterval(() => {
             const energy = this._getAudioEnergy();
@@ -114,7 +108,6 @@ export class SpeechDetector {
      */
     _completeCalibration() {
         if (this.noiseHistory.length === 0) {
-            console.warn('⚠️ 校准失败：无有效数据，使用默认阈值');
             this.noiseBaseline = this.baseThreshold / this.highThresholdMultiplier;
             this.isCalibrated = true;
             return;
@@ -127,11 +120,6 @@ export class SpeechDetector {
 
         const lowThreshold = this.getLowThreshold();
         const highThreshold = this.getHighThreshold();
-
-        console.log('✅ 校准完成！');
-        console.log(`   - 背景噪音基准: ${this.noiseBaseline.toFixed(1)}`);
-        console.log(`   - 预激活阈值: ${lowThreshold.toFixed(1)} (基准 × ${this.lowThresholdMultiplier})`);
-        console.log(`   - 确认阈值: ${highThreshold.toFixed(1)} (基准 × ${this.highThresholdMultiplier})`);
 
         if (this.onCalibrationComplete) {
             this.onCalibrationComplete({
@@ -163,8 +151,6 @@ export class SpeechDetector {
         }
 
         this.state = 'IDLE';
-
-        console.log('⏹ SpeechDetector stopped');
     }
 
     /**
@@ -188,22 +174,6 @@ export class SpeechDetector {
         this.energyTrend.push(energy);
         if (this.energyTrend.length > this.energyTrendWindow) {
             this.energyTrend.shift();
-        }
-
-        // 调试日志（每秒打印一次）
-        if (now - this.lastLogTime > 1000) {
-            const stateEmoji = {
-                'IDLE': '⚪',
-                'PRE_ACTIVE': '🟡',
-                'SPEAKING': '🟢'
-            };
-            console.log(`[VAD] 能量: ${energy.toFixed(1)} | 阈值: [${lowThreshold.toFixed(1)}, ${highThreshold.toFixed(1)}] | 状态: ${stateEmoji[this.state]} ${this.state} | 检测运行中`);
-            this.lastLogTime = now;
-        }
-
-        // 额外检测：当能量很高时，也打印日志（帮助调试为什么不触发）
-        if (energy > highThreshold && this.state === 'IDLE') {
-            console.log(`[VAD] ⚠️ 检测到高能量 ${energy.toFixed(1)} > ${highThreshold.toFixed(1)}，但状态仍是 IDLE`);
         }
 
         // 状态机逻辑
@@ -237,7 +207,6 @@ export class SpeechDetector {
             this.state = 'PRE_ACTIVE';
             this.preActiveStartTime = now;
             this.energyTrend = [energy];
-            console.log(`[VAD] 🟡 进入预激活状态 (能量: ${energy.toFixed(1)} > ${lowThreshold.toFixed(1)})`);
         }
     }
 
@@ -260,8 +229,6 @@ export class SpeechDetector {
             this.silenceStartTime = 0;
             this.lastSpeechTime = now;
 
-            console.log(`[VAD] 🟢 确认说话开始！(${isRising ? '能量持续上升' : '超过高阈值'}, 持续 ${elapsed}ms)`);
-
             if (this.onSpeakingStart) {
                 this.onSpeakingStart();
             }
@@ -270,7 +237,6 @@ export class SpeechDetector {
         else if (energy < lowThreshold && elapsed > 500) {
             this.state = 'IDLE';
             this.preActiveStartTime = 0;
-            console.log(`[VAD] ⚪ 预激活取消 (能量回落)`);
         }
     }
 
@@ -287,7 +253,6 @@ export class SpeechDetector {
             // 检测到静音
             if (this.silenceStartTime === 0) {
                 this.silenceStartTime = now;
-                console.log(`[VAD] 🔇 检测到静音，等待持续 ${this.silenceDuration}ms...`);
             }
 
             const silenceDuration = now - this.silenceStartTime;
@@ -297,8 +262,6 @@ export class SpeechDetector {
 
                 // ✅ 验证说话时长是否满足最小要求
                 if (speakDuration < this.minSpeakDuration) {
-                    console.log(`[VAD] ⚠️ 说话时长不足 (${(speakDuration / 1000).toFixed(1)}s < ${(this.minSpeakDuration / 1000).toFixed(1)}s)，忽略此次说话`);
-
                     // 重置状态，不触发回调
                     this.state = 'IDLE';
                     this.speechStartTime = 0;
@@ -312,8 +275,6 @@ export class SpeechDetector {
                 this.speechStartTime = 0;
                 this.silenceStartTime = 0;
                 this.preActiveStartTime = 0;
-
-                console.log(`[VAD] ⏹️ 说话结束！总时长: ${(speakDuration / 1000).toFixed(1)}s, 静音: ${silenceDuration}ms`);
 
                 if (this.onSpeakingEnd) {
                     this.onSpeakingEnd();
@@ -359,8 +320,6 @@ export class SpeechDetector {
         // 平滑更新（避免突变）
         this.noiseBaseline = this.noiseBaseline * 0.8 + newBaseline * 0.2;
         this.lastNoiseUpdateTime = Date.now();
-
-        console.log(`[VAD] 📊 噪音基准已更新: ${this.noiseBaseline.toFixed(1)}`);
     }
 
     /**
@@ -465,7 +424,6 @@ export class SpeechDetector {
     setNoiseBaseline(baseline) {
         this.noiseBaseline = baseline;
         this.isCalibrated = true;
-        console.log(`[VAD] 手动设置噪音基准: ${baseline.toFixed(1)}`);
     }
 
     /**
@@ -476,7 +434,6 @@ export class SpeechDetector {
     setThresholdMultipliers(lowMultiplier, highMultiplier) {
         this.lowThresholdMultiplier = lowMultiplier;
         this.highThresholdMultiplier = highMultiplier;
-        console.log(`[VAD] 阈值倍数已更新: 低=${lowMultiplier}, 高=${highMultiplier}`);
     }
 
     /**

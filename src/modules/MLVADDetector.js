@@ -226,6 +226,14 @@ export class MLVADDetector {
     }
 
     /**
+     * 获取当前状态（兼容接口）
+     * @returns {string} 'IDLE' 或 'SPEAKING'
+     */
+    getCurrentState() {
+        return this.isSpeaking ? 'SPEAKING' : 'IDLE';
+    }
+
+    /**
      * 销毁检测器
      */
     destroy() {

@@ -50,8 +50,8 @@ export class MLVADDetector {
             this.vad = await MicVAD.new({
                 stream: this.mediaStream,
 
-                // CDN 路径配置（重要！）
-                onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/',
+                // CDN 路径配置（使用 1.22.0 版本，包含 .mjs 文件）
+                onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/',
                 baseAssetPath: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/',
                 workletURL: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/vad.worklet.bundle.min.js',
                 modelURL: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/silero_vad_legacy.onnx',
@@ -206,6 +206,22 @@ export class MLVADDetector {
      * @returns {number} 返回 0（ML VAD 不基于能量检测）
      */
     getCurrentEnergy() {
+        return 0;
+    }
+
+    /**
+     * 获取低阈值（兼容接口，ML VAD 不使用阈值）
+     * @returns {number} 返回 0
+     */
+    getLowThreshold() {
+        return 0;
+    }
+
+    /**
+     * 获取高阈值（兼容接口，ML VAD 不使用阈值）
+     * @returns {number} 返回 0
+     */
+    getHighThreshold() {
         return 0;
     }
 

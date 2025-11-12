@@ -1,4 +1,3 @@
-import { SpeechDetector } from './SpeechDetector.js';
 import { MLVADDetector } from './MLVADDetector.js';
 import { CircularVideoBuffer } from './CircularVideoBuffer.js';
 
@@ -23,20 +22,9 @@ export class VideoAutoCaptureManager {
             videoFormat: options.videoFormat || 'video/webm',
             videoBitsPerSecond: options.videoBitsPerSecond || 2500000,
 
-            // VAD 基础配置
-            speechThreshold: options.speechThreshold || 30,       // 基础阈值（默认 30）
+            // VAD 配置（使用 ML-based VAD）
             silenceDuration: options.silenceDuration || 2000,     // 静音持续时间（默认 2000ms）
-            minSpeakDuration: options.minSpeakDuration || 900,    // 最小说话时长（默认 900ms）
-
-            // VAD 高级配置
-            calibrationDuration: options.calibrationDuration || 3000,      // 校准时长（默认 3000ms）
-            noiseUpdateInterval: options.noiseUpdateInterval || 10000,     // 噪音基准更新间隔（默认 10000ms）
-            minThreshold: options.minThreshold !== undefined ? options.minThreshold : 20,  // 动态阈值最小值（默认 20）
-            lowThresholdMultiplier: options.lowThresholdMultiplier || 1.5,  // 预激活阈值倍数（默认 1.5）
-            highThresholdMultiplier: options.highThresholdMultiplier || 3.0, // 确认阈值倍数（默认 3.0）
-
-            // VAD 类型选择
-            useMLVAD: options.useMLVAD !== false  // 默认使用 ML-based VAD（更准确）
+            minSpeakDuration: options.minSpeakDuration || 900     // 最小说话时长（默认 900ms）
         };
 
         // 回调函数
@@ -52,9 +40,7 @@ export class VideoAutoCaptureManager {
         // 核心组件
         this.circularBuffer = null;      // 循环缓冲区（管理 N 组视频）
         this.mediaRecorder = null;       // 唯一的 MediaRecorder
-        this.speechDetector = null;      // 说话检测器
-        this.audioContext = null;
-        this.audioAnalyser = null;
+        this.speechDetector = null;      // 说话检测器（ML VAD）
 
         // 定期重启定时器
         this.restartTimer = null;
@@ -80,18 +66,13 @@ export class VideoAutoCaptureManager {
             // 1. 初始化循环缓冲区
             this.circularBuffer = new CircularVideoBuffer(this.config.maxGroups);
 
-            // 2. 初始化音频分析器（仅在使用传统 VAD 时需要）
-            if (!this.config.useMLVAD) {
-                this._initAudioAnalyser();
-            }
-
-            // 3. 初始化说话检测器
+            // 2. 初始化说话检测器（ML VAD）
             await this._initSpeechDetector();
 
-            // 4. 初始化 MediaRecorder
+            // 3. 初始化 MediaRecorder
             this._initMediaRecorder();
 
-            // 5. 启动循环录制
+            // 4. 启动循环录制
             this._startRecording();
 
             this.isRunning = true;
@@ -147,59 +128,17 @@ export class VideoAutoCaptureManager {
     }
 
     /**
-     * 初始化音频分析器
-     * @private
-     */
-    _initAudioAnalyser() {
-        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        this.audioAnalyser = this.audioContext.createAnalyser();
-        this.audioAnalyser.fftSize = 2048;
-        this.audioAnalyser.smoothingTimeConstant = 0.8;
-
-        const source = this.audioContext.createMediaStreamSource(this.mediaStream);
-        source.connect(this.audioAnalyser);
-
-        // 调试：检查音频轨道状态
-        const audioTracks = this.mediaStream.getAudioTracks();
-        console.log('[AudioAnalyser] Audio tracks:', audioTracks.length);
-        audioTracks.forEach((track, index) => {
-            console.log(`[AudioAnalyser] Track ${index}:`, {
-                enabled: track.enabled,
-                muted: track.muted,
-                readyState: track.readyState,
-                label: track.label
-            });
-        });
-    }
-
-    /**
-     * 初始化说话检测器
+     * 初始化说话检测器（使用 ML-based VAD）
      * @private
      */
     _initSpeechDetector() {
-        if (this.config.useMLVAD) {
-            console.log('[VAD] Using ML-based VAD (recommended for better accuracy)');
+        console.log('[VAD] Using ML-based VAD (@ricky0123/vad-web)');
 
-            // 使用 ML-based VAD
-            this.speechDetector = new MLVADDetector(this.mediaStream, {
-                silenceDuration: this.config.silenceDuration,
-                minSpeakDuration: this.config.minSpeakDuration
-            });
-        } else {
-            console.log('[VAD] Using energy-based VAD');
-
-            // 使用传统的能量阈值 VAD
-            this.speechDetector = new SpeechDetector(this.audioAnalyser, {
-                threshold: this.config.speechThreshold,
-                silenceDuration: this.config.silenceDuration,
-                minSpeakDuration: this.config.minSpeakDuration,
-                calibrationDuration: this.config.calibrationDuration,
-                noiseUpdateInterval: this.config.noiseUpdateInterval,
-                minThreshold: this.config.minThreshold,
-                lowThresholdMultiplier: this.config.lowThresholdMultiplier,
-                highThresholdMultiplier: this.config.highThresholdMultiplier
-            });
-        }
+        // 使用 ML-based VAD
+        this.speechDetector = new MLVADDetector(this.mediaStream, {
+            silenceDuration: this.config.silenceDuration,
+            minSpeakDuration: this.config.minSpeakDuration
+        });
 
         // 说话开始事件
         this.speechDetector.onSpeakingStart = () => {

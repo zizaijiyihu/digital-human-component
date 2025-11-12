@@ -1296,9 +1296,26 @@ export class DigitalHuman extends EventEmitter {
         `;
 
         // 11. 调整数字人 canvas 尺寸
+        const canvas = this.sceneManager.renderer.domElement;
+
+        // 清除可能的 transform 残留
+        canvas.style.transform = 'none';
+        canvas.style.transformOrigin = '';
+
+        // 设置 canvas 的 CSS 尺寸
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.display = 'block';
+
+        // 更新渲染器和相机
         this.sceneManager.renderer.setSize(containerWidth, containerHeight);
         this.sceneManager.camera.aspect = containerWidth / containerHeight;
         this.sceneManager.camera.updateProjectionMatrix();
+
+        // 更新 OrbitControls（如果存在）
+        if (this.sceneManager.controls) {
+            this.sceneManager.controls.update();
+        }
 
         // 12. 重置摄像头小窗口z-index
         this.cameraPipContainer.style.zIndex = '200';
@@ -1485,9 +1502,26 @@ export class DigitalHuman extends EventEmitter {
         this.pipContainer.style.zIndex = '100';
 
         // 10. 调整数字人 canvas 尺寸
+        const canvas = this.sceneManager.renderer.domElement;
+
+        // 清除可能的 transform 残留
+        canvas.style.transform = 'none';
+        canvas.style.transformOrigin = '';
+
+        // 设置 canvas 的 CSS 尺寸
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.display = 'block';
+
+        // 更新渲染器和相机
         this.sceneManager.renderer.setSize(pipWidth, pipHeight);
         this.sceneManager.camera.aspect = pipWidth / pipHeight;
         this.sceneManager.camera.updateProjectionMatrix();
+
+        // 更新 OrbitControls（如果存在）
+        if (this.sceneManager.controls) {
+            this.sceneManager.controls.update();
+        }
 
         // 11. 添加数字人小窗口的事件监听
         this.pipMouseEnterHandler = () => {

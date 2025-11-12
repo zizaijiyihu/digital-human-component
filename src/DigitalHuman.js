@@ -74,7 +74,10 @@ export class DigitalHuman extends EventEmitter {
             // 调试
             showControls: options.showControls || false,
             enableOrbitControls: options.enableOrbitControls === true,  // 默认禁用，固定视角
-            debug: options.debug || false
+            debug: options.debug || false,
+
+            // 打断设置
+            enableInterruption: options.enableInterruption !== false  // 默认启用用户说话打断数字人
         };
 
         // 验证必选参数
@@ -1770,6 +1773,26 @@ export class DigitalHuman extends EventEmitter {
         }
 
         try {
+            // 保存原始回调
+            const originalOnSpeakingStart = options.onSpeakingStart;
+
+            // 包装 onSpeakingStart 回调以支持打断功能
+            options.onSpeakingStart = () => {
+                // 如果启用了打断功能且数字人正在说话，则停止数字人说话
+                if (this.config.enableInterruption && this.currentMode === 'speaking') {
+                    if (this.config.debug) {
+                        console.log('🛑 User speaking detected, interrupting digital human...');
+                    }
+                    this.stopSpeaking();
+                    this.emit('interrupted', { reason: 'user_speaking' });
+                }
+
+                // 调用原始回调
+                if (originalOnSpeakingStart) {
+                    originalOnSpeakingStart();
+                }
+            };
+
             // 创建视频自动采集管理器
             this.videoAutoCaptureManager = new VideoAutoCaptureManager(this.localMediaStream, options);
 
@@ -1783,6 +1806,7 @@ export class DigitalHuman extends EventEmitter {
 
             if (this.config.debug) {
                 console.log('📹 Video auto capture enabled');
+                console.log(`🛑 Interruption: ${this.config.enableInterruption ? 'enabled' : 'disabled'}`);
             }
 
         } catch (error) {

@@ -131,6 +131,9 @@ const avatar = new DigitalHuman({
     // 加载动画
     showLoading: true,                 // 显示内置加载动画（默认 true）
 
+    // 打断设置
+    enableInterruption: true,          // 启用用户说话打断数字人（默认 true）
+
     // 事件回调
     onLoadingStart: () => {},          // 加载开始（可选，用于自定义加载效果）
     onReady: () => {},                 // 加载完成
@@ -1093,6 +1096,172 @@ avatar.on('videoAutoCaptureDisabled', () => {
 // 采集错误
 avatar.on('videoAutoCaptureError', ({ error }) => {
     console.error('视频自动采集错误:', error);
+});
+```
+
+---
+
+## 🛑 用户说话打断数字人（新功能）
+
+### 什么是打断功能？
+
+当用户开始说话时，自动停止数字人当前的语音播放，实现更自然的对话交互体验。这个功能在视频客服、智能助手等场景中非常有用。
+
+### 核心特性
+
+- ✅ **默认启用**：开箱即用，无需额外配置
+- 🎯 **智能检测**：基于 VAD（语音活动检测）自动识别用户说话
+- 🔄 **无缝切换**：立即停止数字人说话，避免声音重叠
+- ⚙️ **可配置**：支持启用/禁用控制
+
+### 快速开始
+
+```javascript
+import { DigitalHuman } from './src/index.js';
+
+const avatar = new DigitalHuman({
+    container: '#avatar',
+    enableInterruption: true  // 默认为 true，可以设置为 false 禁用
+});
+
+// 1. 进入视频通话模式
+await avatar.enterVideoCallMode();
+
+// 2. 启动视频自动采集（自动启用打断功能）
+await avatar.enableVideoAutoCapture({
+    onVideoCapture: (videoGroups) => {
+        console.log('捕获视频:', videoGroups);
+    },
+    onSpeakingStart: () => {
+        console.log('用户开始说话');
+        // 如果数字人正在说话，会自动被打断
+    }
+});
+
+// 3. 数字人开始说话
+await avatar.speak('你好，我是数字人助手...');
+
+// 4. 用户说话时，数字人会自动停止
+// 无需手动处理，系统会自动检测并打断
+```
+
+### 监听打断事件
+
+```javascript
+// 监听打断事件
+avatar.on('interrupted', ({ reason }) => {
+    console.log('数字人被打断:', reason);  // reason: 'user_speaking'
+
+    // 可以在这里处理打断后的逻辑
+    // 例如：停止后端 TTS 生成、清理音频队列等
+});
+```
+
+### 禁用打断功能
+
+如果某些场景下不需要打断（例如：播放重要通知），可以禁用：
+
+```javascript
+const avatar = new DigitalHuman({
+    container: '#avatar',
+    enableInterruption: false  // 禁用打断
+});
+```
+
+### 工作原理
+
+```
+数字人正在说话中... 🗣️
+    ↓
+用户开始说话（VAD 检测到）👤
+    ↓
+触发 onSpeakingStart 回调
+    ↓
+检查 enableInterruption === true？
+    ↓ Yes
+调用 avatar.stopSpeaking()
+    ↓
+触发 'interrupted' 事件
+    ↓
+数字人停止说话 ⏹️
+```
+
+### 使用场景
+
+1. **智能客服**：用户打断时立即停止播报，提升交互体验
+2. **语音助手**：支持随时打断，更自然的对话流程
+3. **在线教育**：学生提问时暂停讲解
+4. **远程医疗**：患者插话时医生端立即响应
+
+### 注意事项
+
+1. **前置条件**：
+   - 必须启用视频自动采集功能（`enableVideoAutoCapture`）
+   - 需要摄像头和麦克风权限
+
+2. **打断时机**：
+   - 仅当数字人处于 `speaking` 模式时才会触发打断
+   - 打断后会触发 `interrupted` 事件和 `onSpeakEnd` 回调
+
+3. **流式音频**：
+   - 支持打断流式音频（`speakStreaming`）
+   - 会自动清理音频队列，停止后续音频播放
+
+4. **推荐配置**：
+   - 配合较低的 `speechThreshold`（如 30）以提高检测灵敏度
+   - 配合较短的 `minSpeakDuration`（如 900ms）以快速响应
+
+### 完整示例
+
+```javascript
+import { DigitalHuman } from './src/index.js';
+
+const avatar = new DigitalHuman({
+    container: '#avatar',
+    enableInterruption: true,  // 启用打断（默认）
+    debug: true
+});
+
+// 进入视频通话模式
+await avatar.enterVideoCallMode();
+
+// 启动视频自动采集
+await avatar.enableVideoAutoCapture({
+    maxGroups: 1,
+    groupDuration: 5000,
+    speechThreshold: 30,
+
+    onVideoCapture: (videoGroups) => {
+        console.log(`捕获 ${videoGroups.length} 个视频组`);
+    },
+
+    onSpeakingStart: () => {
+        console.log('👤 用户开始说话');
+    },
+
+    onSpeakingEnd: () => {
+        console.log('👤 用户停止说话');
+    }
+});
+
+// 监听打断事件
+avatar.on('interrupted', ({ reason }) => {
+    console.log('🛑 数字人被打断:', reason);
+
+    // 清理后端资源（如果需要）
+    // stopTTSGeneration();
+    // clearAudioQueue();
+});
+
+// 数字人开始说话（可能被打断）
+await avatar.speak('这是一段比较长的语音播报内容...');
+
+// 或者使用流式音频
+await avatar.speakStreaming({
+    audioStream: fetchTTSStream('长文本内容...'),
+    onStreamEnd: () => {
+        console.log('流式播放完成');
+    }
 });
 ```
 

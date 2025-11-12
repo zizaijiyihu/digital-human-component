@@ -163,6 +163,7 @@
                 <div style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 8px;">
                     💡 循环录制 1 组视频，每组 5 秒<br>
                     🎤 说话时自动捕获：说话前的 1-2 组 + 说话期间的 1 组<br>
+                    🛑 打断功能：默认启用，用户说话时自动停止数字人<br>
                     📊 采集状态：<span id="captureStatus">未启动</span><br>
                     🎚️ 音频能量：<span id="audioEnergy">--</span><br>
                     📏 动态阈值：[<span id="lowThreshold">--</span>, <span id="highThreshold">--</span>]<br>
@@ -729,6 +730,20 @@
             btnDownloadGroups.disabled = true;
             captureStatus.textContent = '未启动';
             captureStatus.style.color = 'rgba(255,255,255,0.7)';
+        });
+
+        // ===== 监听打断事件 =====
+
+        avatar.on('interrupted', ({ reason }) => {
+            console.log('🛑 数字人被打断:', reason);
+            updateStatus('🛑 数字人被用户打断');
+
+            // 2秒后自动恢复状态显示
+            setTimeout(() => {
+                if (!avatar.currentMode) {
+                    updateStatus('⏹ 已停止');
+                }
+            }, 2000);
         });
 
         // ===== 页面卸载时清理资源 =====

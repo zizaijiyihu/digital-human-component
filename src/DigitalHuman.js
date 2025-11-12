@@ -384,7 +384,9 @@ export class DigitalHuman extends EventEmitter {
             this.stopListening();
         }
 
+        console.log('[Speak] Starting speaking mode');
         this.currentMode = 'speaking';
+        console.log('[Speak] currentMode set to:', this.currentMode);
 
         // 播放说话动画
         this.animationController.play('talking');
@@ -508,7 +510,9 @@ export class DigitalHuman extends EventEmitter {
             this.stopSpeaking();
         }
 
+        console.log('[SpeakStreaming] Starting streaming speaking mode');
         this.currentMode = 'speaking';
+        console.log('[SpeakStreaming] currentMode set to:', this.currentMode);
 
         // 播放说话动画
         this.animationController.play('talking');
@@ -1778,13 +1782,24 @@ export class DigitalHuman extends EventEmitter {
 
             // 包装 onSpeakingStart 回调以支持打断功能
             options.onSpeakingStart = () => {
+                console.log('[Interruption] User speaking detected');
+                console.log('[Interruption] enableInterruption:', this.config.enableInterruption);
+                console.log('[Interruption] currentMode:', this.currentMode);
+
                 // 如果启用了打断功能且数字人正在说话，则停止数字人说话
                 if (this.config.enableInterruption && this.currentMode === 'speaking') {
-                    if (this.config.debug) {
-                        console.log('🛑 User speaking detected, interrupting digital human...');
-                    }
+                    console.log('🛑 Interrupting digital human speaking...');
                     this.stopSpeaking();
                     this.emit('interrupted', { reason: 'user_speaking' });
+                    console.log('✅ Digital human interrupted successfully');
+                } else {
+                    console.log('[Interruption] No interruption triggered:');
+                    if (!this.config.enableInterruption) {
+                        console.log('  - Reason: enableInterruption is disabled');
+                    }
+                    if (this.currentMode !== 'speaking') {
+                        console.log('  - Reason: currentMode is not "speaking" (current:', this.currentMode + ')');
+                    }
                 }
 
                 // 调用原始回调
@@ -1804,9 +1819,11 @@ export class DigitalHuman extends EventEmitter {
             // 触发事件
             this.emit('videoAutoCaptureEnabled');
 
+            console.log('📹 Video auto capture enabled');
+            console.log(`🛑 Interruption feature: ${this.config.enableInterruption ? 'ENABLED' : 'DISABLED'}`);
+
             if (this.config.debug) {
-                console.log('📹 Video auto capture enabled');
-                console.log(`🛑 Interruption: ${this.config.enableInterruption ? 'enabled' : 'disabled'}`);
+                console.log('[Debug] Video auto capture manager created');
             }
 
         } catch (error) {

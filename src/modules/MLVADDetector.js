@@ -50,6 +50,13 @@ export class MLVADDetector {
             this.vad = await MicVAD.new({
                 stream: this.mediaStream,
 
+                // 模型路径配置（使用 CDN）
+                workletURL: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/vad.worklet.bundle.min.js',
+                modelURL: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.29/dist/silero_vad_legacy.onnx',
+                ortConfig: (ort) => {
+                    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/';
+                },
+
                 // 说话开始回调
                 onSpeechStart: () => {
                     console.log('[MLVAD] 🗣️ Speech start detected');
@@ -193,6 +200,14 @@ export class MLVADDetector {
      */
     getSpeakingState() {
         return this.isSpeaking;
+    }
+
+    /**
+     * 获取当前音频能量（兼容接口，ML VAD 不提供能量值）
+     * @returns {number} 返回 0（ML VAD 不基于能量检测）
+     */
+    getCurrentEnergy() {
+        return 0;
     }
 
     /**

@@ -739,17 +739,22 @@ export class DigitalHuman extends EventEmitter {
 
         try {
             // 获取本地摄像头和麦克风
+            // 注意：echoCancellation 可能会在数字人说话时过滤用户声音
+            const audioConstraints = {
+                echoCancellation: options.echoCancellation !== false,  // 默认 true，可配置
+                noiseSuppression: options.noiseSuppression !== false,  // 默认 true，可配置
+                autoGainControl: options.autoGainControl !== false     // 默认 true，可配置
+            };
+
+            console.log('[VideoCall] Audio constraints:', audioConstraints);
+
             this.localMediaStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     width: { ideal: 1280 },
                     height: { ideal: 720 },
                     facingMode: 'user'
                 },
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }
+                audio: audioConstraints
             });
 
             // 创建视频通话布局

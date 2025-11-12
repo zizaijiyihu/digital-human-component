@@ -197,8 +197,13 @@ export class SpeechDetector {
                 'PRE_ACTIVE': '🟡',
                 'SPEAKING': '🟢'
             };
-            console.log(`[VAD] 能量: ${energy.toFixed(1)} | 阈值: [${lowThreshold.toFixed(1)}, ${highThreshold.toFixed(1)}] | 状态: ${stateEmoji[this.state]} ${this.state}`);
+            console.log(`[VAD] 能量: ${energy.toFixed(1)} | 阈值: [${lowThreshold.toFixed(1)}, ${highThreshold.toFixed(1)}] | 状态: ${stateEmoji[this.state]} ${this.state} | 检测运行中`);
             this.lastLogTime = now;
+        }
+
+        // 额外检测：当能量很高时，也打印日志（帮助调试为什么不触发）
+        if (energy > highThreshold && this.state === 'IDLE') {
+            console.log(`[VAD] ⚠️ 检测到高能量 ${energy.toFixed(1)} > ${highThreshold.toFixed(1)}，但状态仍是 IDLE`);
         }
 
         // 状态机逻辑

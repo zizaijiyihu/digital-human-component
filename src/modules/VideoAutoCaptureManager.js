@@ -318,7 +318,7 @@ export class VideoAutoCaptureManager {
         }
 
         // 停止说话录制器
-        if (this.speakingRecorder.state === 'recording') {
+        if (this.speakingRecorder && this.speakingRecorder.state === 'recording') {
             this.speakingRecorder.stop();
         }
 

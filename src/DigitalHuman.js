@@ -713,7 +713,7 @@ export class DigitalHuman extends EventEmitter {
      * 进入视频通话模式
      * @param {Object} options - 配置选项
      * @param {string} options.pipPosition - PiP 窗口位置 ('bottom-right' | 'bottom-left' | 'top-right' | 'top-left')
-     * @param {number} options.pipScale - PiP 缩放比例，默认 0.25 (1/4)
+     * @param {number} options.pipScale - PiP 缩放比例，默认 1.0 (数字人主窗口)，设为 0.25 则摄像头主窗口
      * @param {boolean} options.showLocalVideo - 是否显示本地摄像头，默认 true
      * @param {boolean} options.showAudioVisualizer - 是否显示音频可视化，默认 false
      * @returns {Promise<MediaStream>} 本地媒体流
@@ -726,7 +726,7 @@ export class DigitalHuman extends EventEmitter {
 
         const config = {
             pipPosition: options.pipPosition || 'bottom-right',
-            pipScale: options.pipScale || 0.25,
+            pipScale: options.pipScale !== undefined ? options.pipScale : 1.0,  // 默认 1.0（数字人主窗口）
             showLocalVideo: options.showLocalVideo !== false,
             showAudioVisualizer: options.showAudioVisualizer === true  // 默认不显示
         };

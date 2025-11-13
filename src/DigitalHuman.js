@@ -752,7 +752,7 @@ export class DigitalHuman extends EventEmitter {
                 video: {
                     width: { ideal: 1280 },
                     height: { ideal: 720 },
-                    frameRate: { ideal: 30 },  // 显式设置 30fps，确保一致性
+                    frameRate: { ideal: 15 },  // 显式设置 15fps，确保一致性
                     facingMode: 'user'
                 },
                 audio: audioConstraints

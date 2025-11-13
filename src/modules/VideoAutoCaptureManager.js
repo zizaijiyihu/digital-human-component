@@ -21,6 +21,7 @@ export class VideoAutoCaptureManager {
             maxRecordDuration: options.maxRecordDuration || 300000, // 最大录制时长（5 分钟）
             videoFormat: options.videoFormat || 'video/webm',
             videoBitsPerSecond: options.videoBitsPerSecond || 2500000,
+            includeBeforeSpeaking: options.includeBeforeSpeaking !== false,  // 是否包含说话前的视频（默认 true）
 
             // VAD 配置（使用 ML-based VAD）
             silenceDuration: options.silenceDuration || 2000,     // 静音持续时间（默认 2000ms）
@@ -340,8 +341,8 @@ export class VideoAutoCaptureManager {
             // 构建视频组数组（说话前的 N 组 + 说话期间的 1 组）
             const videoGroups = [];
 
-            // 添加说话前的 N 组
-            if (this.snapshotGroups && Array.isArray(this.snapshotGroups)) {
+            // 添加说话前的 N 组（如果启用）
+            if (this.config.includeBeforeSpeaking && this.snapshotGroups && Array.isArray(this.snapshotGroups)) {
                 for (const group of this.snapshotGroups) {
                     videoGroups.push({
                         blob: group.blob,
@@ -364,7 +365,8 @@ export class VideoAutoCaptureManager {
                 type: 'speaking'
             });
 
-            console.log(`✅ Total video groups: ${videoGroups.length} (${this.snapshotGroups.length} before + 1 speaking)`);
+            const beforeCount = this.config.includeBeforeSpeaking ? (this.snapshotGroups?.length || 0) : 0;
+            console.log(`✅ Total video groups: ${videoGroups.length} (${beforeCount} before + 1 speaking)`);
 
             // 打印详细的视频组信息
             console.log('📹 Video groups details:');

@@ -715,7 +715,7 @@ export class DigitalHuman extends EventEmitter {
      * @param {string} options.pipPosition - PiP 窗口位置 ('bottom-right' | 'bottom-left' | 'top-right' | 'top-left')
      * @param {number} options.pipScale - PiP 缩放比例，默认 0.25 (1/4)
      * @param {boolean} options.showLocalVideo - 是否显示本地摄像头，默认 true
-     * @param {boolean} options.showAudioVisualizer - 是否显示音频可视化，默认 true
+     * @param {boolean} options.showAudioVisualizer - 是否显示音频可视化，默认 false
      * @returns {Promise<MediaStream>} 本地媒体流
      */
     async enterVideoCallMode(options = {}) {
@@ -728,7 +728,7 @@ export class DigitalHuman extends EventEmitter {
             pipPosition: options.pipPosition || 'bottom-right',
             pipScale: options.pipScale || 0.25,
             showLocalVideo: options.showLocalVideo !== false,
-            showAudioVisualizer: options.showAudioVisualizer !== false
+            showAudioVisualizer: options.showAudioVisualizer === true  // 默认不显示
         };
 
         // 保存初始配置

@@ -341,15 +341,17 @@ export class VideoAutoCaptureManager {
             const videoGroups = [];
 
             // 添加说话前的 N 组
-            for (const group of this.snapshotGroups) {
-                videoGroups.push({
-                    blob: group.blob,
-                    duration: group.duration,
-                    startTime: group.startTime,
-                    endTime: group.endTime,
-                    size: group.size,
-                    type: 'before-speaking'
-                });
+            if (this.snapshotGroups && Array.isArray(this.snapshotGroups)) {
+                for (const group of this.snapshotGroups) {
+                    videoGroups.push({
+                        blob: group.blob,
+                        duration: group.duration,
+                        startTime: group.startTime,
+                        endTime: group.endTime,
+                        size: group.size,
+                        type: 'before-speaking'
+                    });
+                }
             }
 
             // 添加说话期间的 1 组

@@ -1797,7 +1797,10 @@ export class DigitalHuman extends EventEmitter {
                     console.log('🛑 Interrupting digital human speaking...');
                     this.stopSpeaking();
                     this.emit('interrupted', { reason: 'user_speaking' });
-                    console.log('✅ Digital human interrupted successfully');
+
+                    // 打断后自动切换到聆听模式
+                    this.startListening();
+                    console.log('✅ Digital human interrupted and switched to listening mode');
                 } else {
                     console.log('[Interruption] No interruption triggered:');
                     if (!this.config.enableInterruption) {
